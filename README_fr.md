@@ -18,13 +18,14 @@ Contrôleur web single-page pour l'IK Multimedia TONEX Pedal. Gère les presets 
 - **Bascule bibliothèque** — chevron discret pour minimiser/étendre la bibliothèque de presets
 - **Export/Import JSON** — exporte les noms de presets vers un fichier, importe sur une autre config
 - **Support Android** — fonctionne sur Android Chrome via fallback WebUSB (Web Serial non disponible sur Android)
+- **Pont Sans Fil (ESP32-S3)** — contrôle à distance autonome en Wi-Fi depuis Safari iOS ou tout navigateur LAN, sans aucun ordinateur requis
 
 ## Prérequis
 
 | Composant | Version requise |
 |-----------|----------------|
-| Navigateur | Chrome 89+ ou Edge 89+ (Web MIDI + Web Serial API) |
-| Système | Windows 10/11, Android (via WebUSB) |
+| Navigateur | Chrome 89+ ou Edge 89+ (Web MIDI + Web Serial API) ou Safari iOS (via Pont ESP32) |
+| Système | Windows 10/11, Android (via WebUSB), iOS / macOS (via Pont ESP32) |
 | Pédalier | IK Multimedia TONEX Pedal (full size) |
 | Câble | USB-C connecté au port USB du pédalier |
 
@@ -32,9 +33,9 @@ Contrôleur web single-page pour l'IK Multimedia TONEX Pedal. Gère les presets 
 
 > **Note Android** : Sur Android, Web Serial n'est pas disponible — l'application utilise le fallback WebUSB pour la communication USB CDC. Le MIDI n'est pas disponible sur Android (pas d'API Web MIDI).
 
-## Installation
+## Installation & Déploiement
 
-### Option 1 — Serveur web local (recommandé)
+### Option 1 — Serveur web local (recommandé pour PC)
 
 Copier le dossier `tonexpedal/` dans le répertoire racine de votre serveur web, puis accéder via :
 ```
@@ -55,6 +56,15 @@ Puis ouvrir `http://localhost:3000`.
 ### Option 3 — Fichier statique (sans serveur)
 
 Simplement double-cliquer sur `index.html` ou l'ouvrir via `file:///` dans votre navigateur.
+
+### Option 4 — Pont Sans Fil Autonome (ESP32-S3)
+
+Pour contrôler la pédale depuis Safari iOS (iPad/iPhone) sur le canapé ou sur scène sans aucun PC allumé :
+1. Flasher le firmware situé dans [`firmware/`](firmware/) sur une carte **ESP32-S3-DevKit**.
+2. Connecter l'ESP32 à la ToneX Pedal en USB et l'alimenter en 5V (ou via une dérivation 9V).
+3. Ouvrir `http://tonex.local` dans votre navigateur.
+
+Voir le guide complet : [Documentation du Pont Sans Fil ESP32-S3](docs/ESP32_WIRELESS_BRIDGE_fr.md).
 
 ## Utilisation
 
@@ -110,13 +120,40 @@ Format JSON :
 
 ```
 tonexpedal/
-├── index.html          # Application single-file (HTML + CSS + JS)
-├── favicon.svg         # Icône SVG
-├── README.md           # Cette documentation
+├── index.html                     # Application SPA principale (détecte Web MIDI/Série vs Pont WebSocket)
+├── favicon.svg                    # Icône SVG
+├── package.json                   # Scripts de test et métadonnées
+├── README.md                      # Documentation en anglais
+├── README_fr.md                   # Cette documentation en français
+├── docs/
+│   ├── index.html                 # Page de documentation web (FR/EN)
+│   ├── ESP32_WIRELESS_BRIDGE.md   # Guide technique ESP32 (EN)
+│   └── ESP32_WIRELESS_BRIDGE_fr.md# Guide technique ESP32 (FR)
 ├── captures/
-│   └── tnx1.png        # Capture d'écran de l'interface
-└── V1.0/
-    └── index.html      # Archive de la version 1.0
+│   └── tnx1.png                   # Capture d'écran de l'interface
+├── firmware/                      # Firmware PlatformIO autonome pour ESP32-S3
+│   ├── platformio.ini             # Config de build pour ESP32-S3 et tests natifs
+│   ├── partitions_16MB.csv        # Carte des partitions flash LittleFS
+│   ├── include/                   # En-têtes C++ (HDLC, USB Host, pont WebSocket)
+│   ├── src/                       # Fichiers sources C++
+│   ├── test/                      # Tests unitaires C++ Unity
+│   └── data/                      # Fichiers web LittleFS
+└── tests/                         # Suites de tests unitaires JavaScript / Protocole
+    ├── protocol.test.js           # Tests CRC-CCITT, byte-stuffing, décodage binaire
+    ├── midi.test.js               # Tests de conversion Bank/PC
+    └── import_export.test.js      # Tests de validation du schéma JSON
+```
+
+### Développement & Tests
+
+Lancer la suite de tests unitaires JavaScript :
+```bash
+npm test
+```
+
+Lancer les tests unitaires C++ natifs (PlatformIO) :
+```bash
+cd firmware && pio test -e native
 ```
 
 ### Protocole MIDI

@@ -18,21 +18,22 @@ Single-page web controller for the IK Multimedia TONEX Pedal. Manages presets vi
 - **Library toggle** — discreet chevron to minimize/expand the preset library
 - **Export/Import JSON** — export preset names to a file, import them on another setup
 - **Android support** — works on Android Chrome via WebUSB fallback (Web Serial not available on Android)
+- **Wireless Bridge (ESP32-S3)** — standalone Wi-Fi remote control from iOS Safari or any LAN browser with zero computer required
 
 ## Prerequisites
 
 | Component | Required version |
 |-----------|-----------------|
-| Browser | Chrome 89+ or Edge 89+ (Web MIDI + Web Serial API) |
-| OS | Windows 10/11, Android (via WebUSB) |
+| Browser | Chrome 89+ or Edge 89+ (Web MIDI + Web Serial API) or iOS Safari (via ESP32 Bridge) |
+| OS | Windows 10/11, Android (via WebUSB), iOS / macOS (via ESP32 Bridge) |
 | Pedal | IK Multimedia TONEX Pedal (full size) |
 | Cable | USB-C connected to the pedal's USB port |
 
 > **Note**: On Android, Web Serial is not available — the app falls back to WebUSB for USB CDC communication. MIDI is not available on Android (no Web MIDI API).
 
-## Installation
+## Installation & Deployment
 
-### Option 1 — Local web server (recommended)
+### Option 1 — Local web server (recommended for desktop)
 
 Copy the `tonexpedal/` folder to your web server root, then access via:
 ```
@@ -53,6 +54,15 @@ Then open `http://localhost:3000`.
 ### Option 3 — Static file (no server required)
 
 Simply double-click `index.html` or open it via `file:///` in your browser.
+
+### Option 4 — Standalone Wireless Bridge (ESP32-S3)
+
+For remote control from iOS Safari (iPad/iPhone) on your couch or stage with zero computer running:
+1. Flash the firmware in [`firmware/`](firmware/) to an **ESP32-S3-DevKit** board.
+2. Connect the ESP32 to the ToneX Pedal via USB and power it from 5V (or a 9V tap).
+3. Open `http://tonex.local` in your browser.
+
+See full guide: [ESP32-S3 Wireless Bridge Documentation](docs/ESP32_WIRELESS_BRIDGE.md).
 
 ## Usage
 
@@ -108,15 +118,40 @@ JSON format:
 
 ```
 tonexpedal/
-├── index.html          # Single-file application (HTML + CSS + JS)
-├── favicon.svg         # SVG icon
-├── README.md           # This documentation
+├── index.html                     # Core SPA (auto-detects Web MIDI / Web Serial vs. WebSocket Bridge)
+├── favicon.svg                    # SVG icon
+├── package.json                   # Test script & project metadata
+├── README.md                      # English documentation
+├── README_fr.md                   # French documentation
 ├── docs/
-│   └── index.html      # Web documentation page (FR/EN)
+│   ├── index.html                 # Documentation site (FR/EN)
+│   ├── ESP32_WIRELESS_BRIDGE.md   # ESP32 Bridge technical guide (EN)
+│   └── ESP32_WIRELESS_BRIDGE_fr.md# ESP32 Bridge technical guide (FR)
 ├── captures/
-│   └── tnx1.png        # Interface screenshot
-└── V1.0/
-    └── index.html      # Version 1.0 archive
+│   └── tnx1.png                   # Interface screenshot
+├── firmware/                      # Standalone ESP32-S3 PlatformIO firmware
+│   ├── platformio.ini             # Build config for ESP32-S3 & native tests
+│   ├── partitions_16MB.csv        # LittleFS flash partition map
+│   ├── include/                   # C++ headers (HDLC, USB Host, WebSocket bridge)
+│   ├── src/                       # C++ source files
+│   ├── test/                      # C++ Unity unit tests
+│   └── data/                      # LittleFS web assets
+└── tests/                         # JavaScript / Protocol unit tests
+    ├── protocol.test.js           # CRC-CCITT, byte-stuffing, binary float tests
+    ├── midi.test.js               # Bank/PC math verification tests
+    └── import_export.test.js      # JSON schema validation tests
+```
+
+### Development & Testing
+
+Run the JavaScript protocol and math test suite:
+```bash
+npm test
+```
+
+Run native C++ unit tests (PlatformIO):
+```bash
+cd firmware && pio test -e native
 ```
 
 ### MIDI Protocol
