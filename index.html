@@ -719,7 +719,9 @@
                 exportDone: 'Export termin\u00e9!',
                 importDone: 'Import termin\u00e9!',
                 importInvalid: 'Fichier JSON invalide ou format incorrect',
-                importCount: ' presets import\u00e9s'
+                importCount: ' presets importés',
+                bridgeConnected: 'Connecté (Wi-Fi)',
+                bridgeDevice: 'ToneX (Pont Wi-Fi)'
             },
             en: {
                 device: 'Device:',
@@ -756,7 +758,9 @@
                 exportDone: 'Export done!',
                 importDone: 'Import done!',
                 importInvalid: 'Invalid JSON file or incorrect format',
-                importCount: ' presets imported'
+                importCount: ' presets imported',
+                bridgeConnected: 'Connected (Wi-Fi)',
+                bridgeDevice: 'ToneX (Wi-Fi Bridge)'
             }
         };
 
@@ -821,6 +825,8 @@
         let justDragged = false;
         let activePresetBank = -1;
         let activePresetSlot = '';
+        let wsBridge = null;
+        let isBridgeConnected = false;
 
         // --- State ---
         let state = loadState();
@@ -874,6 +880,75 @@
             return bank * 3 + slotIndex;
         }
 
+        // --- WebSocket Bridge (ESP32-S3) ---
+        function initWebSocketBridge() {
+            if (!window.location.protocol.startsWith('http')) return;
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = wsProtocol + '//' + window.location.host + '/ws';
+
+            try {
+                wsBridge = new WebSocket(wsUrl);
+                wsBridge.onopen = () => {
+                    isBridgeConnected = true;
+                    updateMIDIStatus(true, true);
+                    const devSelect = document.getElementById('midi-device');
+                    if (devSelect) {
+                        devSelect.innerHTML = '<option value="bridge">' + t('bridgeDevice') + '</option>';
+                        devSelect.value = 'bridge';
+                    }
+                    console.log('[BRIDGE] Connected to ToneX Wi-Fi Bridge');
+                };
+
+                wsBridge.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.event === 'status') {
+                            if (data.tonex_connected) {
+                                updateMIDIStatus(true, true);
+                            }
+                            if (data.active_pc !== undefined && data.active_pc >= 0) {
+                                activePresetPC = data.active_pc;
+                                activePresetBank = data.active_bank !== undefined ? data.active_bank : Math.floor(data.active_pc / 3);
+                                activePresetSlot = data.active_slot !== undefined ? data.active_slot : SLOTS[data.active_pc % 3];
+                                updateActivePresetDisplay();
+                                renderLibrary();
+                            }
+                        } else if (data.event === 'sync_progress') {
+                            const progressEl = document.getElementById('syncProgress');
+                            const fillEl = document.getElementById('syncProgressFill');
+                            const textEl = document.getElementById('syncProgressText');
+                            progressEl.classList.add('active');
+                            fillEl.style.width = (data.percent || 0) + '%';
+                            textEl.textContent = (data.loaded || 0) + ' / ' + (data.total || 150) + '...';
+                        } else if (data.event === 'preset_update') {
+                            const key = getPresetKey(data.bank, data.slot);
+                            if (!state.presets[key]) state.presets[key] = {};
+                            state.presets[key].name = data.name;
+                            state.presets[key].amp = !!data.amp;
+                            state.presets[key].cab = !!data.cab;
+                            saveState();
+                            renderLibrary();
+                            renderGrid();
+                        }
+                    } catch(e) {
+                        console.error('WS parse error:', e);
+                    }
+                };
+
+                wsBridge.onclose = () => {
+                    isBridgeConnected = false;
+                    updateMIDIStatus(false);
+                    setTimeout(initWebSocketBridge, 4000);
+                };
+
+                wsBridge.onerror = () => {
+                    isBridgeConnected = false;
+                };
+            } catch(e) {
+                console.log('WS Bridge not available');
+            }
+        }
+
         // --- MIDI ---
         function updateActivePresetDisplay() {
             const el = document.getElementById('active-preset');
@@ -887,22 +962,31 @@
         }
 
         function bankSelectAndPC(bank, slot) {
-            if (!midiOutput) return;
             const pc = pcFromBankSlot(bank, slot);
             const ch = midiChannel;
 
-            if (pc > 127) {
-                const midiCh = 0xB0 + ch;
-                midiOutput.send([midiCh, 0, 1]);
-                setTimeout(() => {
-                    midiOutput.send([0xC0 + ch, pc - 128]);
-                }, 30);
-            } else {
-                const midiCh = 0xB0 + ch;
-                midiOutput.send([midiCh, 0, 0]);
-                setTimeout(() => {
-                    midiOutput.send([0xC0 + ch, pc]);
-                }, 30);
+            if (isBridgeConnected && wsBridge && wsBridge.readyState === WebSocket.OPEN) {
+                wsBridge.send(JSON.stringify({
+                    action: 'midi_send',
+                    bank: bank,
+                    slot: slot,
+                    pc: pc,
+                    channel: ch
+                }));
+            } else if (midiOutput) {
+                if (pc > 127) {
+                    const midiCh = 0xB0 + ch;
+                    midiOutput.send([midiCh, 0, 1]);
+                    setTimeout(() => {
+                        midiOutput.send([0xC0 + ch, pc - 128]);
+                    }, 30);
+                } else {
+                    const midiCh = 0xB0 + ch;
+                    midiOutput.send([midiCh, 0, 0]);
+                    setTimeout(() => {
+                        midiOutput.send([0xC0 + ch, pc]);
+                    }, 30);
+                }
             }
 
             activePresetPC = pc;
@@ -921,7 +1005,7 @@
                 const outputs = Array.from(midiAccess.outputs.values());
                 if (outputs.length === 0) {
                     const opt = document.createElement('option');
-                    opt.textContent = t('noDevice');
+                    opt.textContent = isBridgeConnected ? t('bridgeDevice') : t('noDevice');
                     select.appendChild(opt);
                     return;
                 }
@@ -973,15 +1057,21 @@
 
             } catch (err) {
                 console.error('Web MIDI error:', err);
-                document.getElementById('midi-status-text').textContent = t('webMidiNotSupported');
+                if (!isBridgeConnected) {
+                    document.getElementById('midi-status-text').textContent = t('webMidiNotSupported');
+                }
             }
         }
 
-        function updateMIDIStatus(connected) {
+        function updateMIDIStatus(connected, isBridge = false) {
             const dot = document.getElementById('midi-dot');
             const txt = document.getElementById('midi-status-text');
             dot.className = 'dot' + (connected ? ' connected' : '');
-            txt.textContent = connected ? t('connected') : t('disconnected');
+            if (isBridge && connected) {
+                txt.textContent = t('bridgeConnected');
+            } else {
+                txt.textContent = connected ? t('connected') : t('disconnected');
+            }
         }
 
         // --- Library ---
@@ -1509,6 +1599,14 @@
             const fillEl = document.getElementById('syncProgressFill');
             const textEl = document.getElementById('syncProgressText');
 
+            if (isBridgeConnected && wsBridge && wsBridge.readyState === WebSocket.OPEN) {
+                progressEl.classList.add('active');
+                textEl.textContent = 'Sync...';
+                fillEl.style.width = '0%';
+                wsBridge.send(JSON.stringify({ action: 'sync_start' }));
+                return;
+            }
+
             if (transportIsOpen()) {
                 await transportDisconnect();
                 syncBtn.textContent = '\ud83d\udd0c Sync USB';
@@ -1775,6 +1873,7 @@
         renderGrid();
         renderLibrary();
         initMIDI();
+        initWebSocketBridge();
 
     })();
     </script>
