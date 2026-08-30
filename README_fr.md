@@ -60,9 +60,10 @@ Simplement double-cliquer sur `index.html` ou l'ouvrir via `file:///` dans votre
 ### Option 4 — Pont Sans Fil Autonome (ESP32-S3)
 
 Pour contrôler la pédale depuis Safari iOS (iPad/iPhone) sur le canapé ou sur scène sans aucun PC allumé :
-1. Flasher le firmware situé dans [`firmware/`](firmware/) sur une carte **ESP32-S3-DevKit**.
-2. Connecter l'ESP32 à la ToneX Pedal en USB et l'alimenter en 5V (ou via une dérivation 9V).
-3. Ouvrir `http://tonex.local` dans votre navigateur.
+1. Flasher le firmware situé dans [`firmware/`](firmware/) sur une carte **ESP32-S3-DevKit** ([Exemple Amazon](https://www.amazon.com/dp/B0GBT212KM)).
+2. Imprimer en 3D un boîtier clipsable ([Modèle 3D Printables](https://www.printables.com/model/1774744-case-for-yd-esp32-s3-n16r8)).
+3. Connecter l'ESP32 à la ToneX Pedal en USB et l'alimenter en 5V (ou via une dérivation 9V).
+4. Ouvrir `http://tonex.local` dans votre navigateur.
 
 Voir le guide complet : [Documentation du Pont Sans Fil ESP32-S3](docs/ESP32_WIRELESS_BRIDGE_fr.md).
 

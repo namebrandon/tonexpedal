@@ -173,3 +173,27 @@ Envoie les presets découverts pour peupler la bibliothèque :
 L'application [`index.html`](file:///Users/brandon/Documents/repos/tonexpedal/index.html) intègre une couche d'abstraction qui détecte automatiquement son environnement :
 - **Servie depuis l'ESP32** : Elle utilise le pont WebSocket pour piloter la ToneX sans fil.
 - **Ouverte localement (`file:///` ou PC local)** : Elle utilise les API Web MIDI et Web Serial natives sans aucune régression.
+
+---
+
+## 7. Feuille de Route d'Implémentation
+
+| Phase | Étape Clé | Livrables |
+| :--- | :--- | :--- |
+| **Phase 1** | **Structure & Documentation** | `docs/ESP32_WIRELESS_BRIDGE_fr.md`, structure `firmware/`. |
+| **Phase 2** | **Cœur Firmware & Hôte USB** | Pilote ESP32-S3 USB Host pour TONEX MIDI & lecteur série CDC HDLC. |
+| **Phase 3** | **Serveur Web & WebSocket** | AsyncWebServer servant `index.html` via LittleFS, mDNS `tonex.local`. |
+| **Phase 4** | **Adaptateur Frontend** | Couche transport WebSocket dans `index.html` pour contrôle temps réel. |
+| **Phase 5** | **Boîtier & Tests Terrain** | Boîtier imprimé en 3D, validation de l'alimentation intégrée. |
+
+---
+
+## 8. Guide du Boîtier Imprimable en 3D
+
+* **Modèle 3D Prêt à Imprimer** : [Boîtier pour YD-ESP32-S3 N16R8 sur Printables](https://www.printables.com/model/1774744-case-for-yd-esp32-s3-n16r8) (boîtier clipsable testé avec accès aux deux ports Type-C et boutons).
+* **Dimensions** : ~65 mm (L) × 32 mm (l) × 14 mm (H).
+* **Ouvertures** :
+  * Découpes pour double port Type-C sur la face inférieure.
+  * Trou de diffusion ou guide optique de 2 mm pour la LED RGB `GPIO48`.
+  * Micro-fentes d'aération sur les capots supérieur/inférieur.
+* **Fixation** : Couvercle clipsable avec empreinte Velcro Dual-Lock optionnelle pour montage sous ou derrière la pédale TONEX.

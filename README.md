@@ -58,9 +58,10 @@ Simply double-click `index.html` or open it via `file:///` in your browser.
 ### Option 4 — Standalone Wireless Bridge (ESP32-S3)
 
 For remote control from iOS Safari (iPad/iPhone) on your couch or stage with zero computer running:
-1. Flash the firmware in [`firmware/`](firmware/) to an **ESP32-S3-DevKit** board.
-2. Connect the ESP32 to the ToneX Pedal via USB and power it from 5V (or a 9V tap).
-3. Open `http://tonex.local` in your browser.
+1. Flash the firmware in [`firmware/`](firmware/) to an **ESP32-S3-DevKit** board ([Amazon Example](https://www.amazon.com/dp/B0GBT212KM)).
+2. 3D print a snap-fit enclosure ([Printables 3D Model](https://www.printables.com/model/1774744-case-for-yd-esp32-s3-n16r8)).
+3. Connect the ESP32 to the ToneX Pedal via USB and power it from 5V (or a 9V tap).
+4. Open `http://tonex.local` in your browser.
 
 See full guide: [ESP32-S3 Wireless Bridge Documentation](docs/ESP32_WIRELESS_BRIDGE.md).
 

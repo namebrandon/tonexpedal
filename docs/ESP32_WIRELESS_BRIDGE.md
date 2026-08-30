@@ -224,6 +224,7 @@ This guarantees 100% backward compatibility with desktop Chrome/Edge direct USB 
 
 ## 8. 3D Printable Enclosure Guidelines
 
+* **Ready-to-Print 3D Model**: [Case for YD-ESP32-S3 N16R8 on Printables](https://www.printables.com/model/1774744-case-for-yd-esp32-s3-n16r8) (tested snap-fit case with dual Type-C cutouts and button access).
 * **Dimensions**: ~65 mm (L) × 32 mm (W) × 14 mm (H).
 * **Port Openings**:
   * Dual Type-C cutouts on the bottom face.
