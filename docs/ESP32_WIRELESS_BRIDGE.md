@@ -38,6 +38,7 @@ By connecting a small **ESP32-S3** microcontroller board to the TONEX Pedal via 
 ## 2. Hardware Specifications
 
 ### 2.1 Target Board: ESP32-S3-DevKit N16R8 (Dual Type-C)
+* **Reference Hardware**: [ESP32-S3-DevKit N16R8 Dual Type-C Development Board (Amazon)](https://www.amazon.com/dp/B0GBT212KM) (also known as YD-ESP32-S3).
 * **Microcontroller**: Espressif ESP32-S3 (Dual-core 32-bit Xtensa LX7 @ 240 MHz).
 * **Flash Memory**: **16 MB (N16)** Quad-SPI Flash (stores firmware + LittleFS web assets).
 * **PSRAM**: **8 MB (R8)** Octal-SPI PSRAM (high-speed buffering for WebSockets & preset library).

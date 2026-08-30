@@ -38,6 +38,7 @@ En connectant une carte microcontrôleur **ESP32-S3** à la pédale TONEX via US
 ## 2. Spécifications Matérielles
 
 ### 2.1 Carte Cible : ESP32-S3-DevKit N16R8 (Double Type-C)
+* **Matériel de Référence** : [Carte de Développement ESP32-S3-DevKit N16R8 Double Type-C (Amazon)](https://www.amazon.com/dp/B0GBT212KM) (également connue sous le nom YD-ESP32-S3).
 * **Microcontrôleur** : Espressif ESP32-S3 (Dual-core 32-bit Xtensa LX7 @ 240 MHz).
 * **Mémoire Flash** : **16 Mo (N16)** Quad-SPI Flash (stocke le firmware + LittleFS pour les fichiers web).
 * **PSRAM** : **8 Mo (R8)** Octal-SPI PSRAM (mise en mémoire tampon ultra-rapide pour WebSockets et bibliothèque).
