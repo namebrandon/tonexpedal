@@ -1,0 +1,19 @@
+{
+  "name": "tonexpedal",
+  "version": "1.2.0",
+  "description": "Single-page web controller and ESP32 wireless bridge for the IK Multimedia TONEX Pedal",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "keywords": [
+    "tonex",
+    "midi",
+    "webmidi",
+    "webserial",
+    "esp32",
+    "esp32-s3",
+    "guitar-pedal"
+  ],
+  "author": "brunothesatellite",
+  "license": "GPL-3.0-only"
+}
