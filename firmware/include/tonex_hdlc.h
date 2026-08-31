@@ -42,7 +42,13 @@ namespace ToneXHDLC {
         uint8_t pc;
     };
 
+    struct UsbMidiPackets {
+        uint8_t bankSelect[4];
+        uint8_t programChange[4];
+    };
+
     BankSlot bankSlotFromPC(uint8_t pc);
     uint8_t pcFromBankSlot(uint8_t bank, char slot);
     MidiMessage getMidiBankSelectAndPC(uint8_t bank, char slot, uint8_t channel = 0);
+    UsbMidiPackets getUsbMidiPackets(uint8_t bank, char slot, uint8_t channel = 0);
 }

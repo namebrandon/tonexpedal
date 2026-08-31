@@ -78,6 +78,15 @@ void test_midi_bank_select_commands(void) {
     TEST_ASSERT_EQUAL_HEX8(0x00, m128.programChange[1]); // PC = 0
 }
 
+void test_usb_midi_event_packets(void) {
+    ToneXHDLC::UsbMidiPackets packets = ToneXHDLC::getUsbMidiPackets(42, 'C', 3);
+
+    const uint8_t expectedBank[] = {0x0B, 0xB3, 0x00, 0x01};
+    const uint8_t expectedProgram[] = {0x0C, 0xC3, 0x00, 0x00};
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expectedBank, packets.bankSelect, 4);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expectedProgram, packets.programChange, 4);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_crc_ccitt_calculation);
@@ -86,5 +95,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_deframe_corrupt_crc_rejection);
     RUN_TEST(test_midi_math_roundtrip);
     RUN_TEST(test_midi_bank_select_commands);
+    RUN_TEST(test_usb_midi_event_packets);
     return UNITY_END();
 }

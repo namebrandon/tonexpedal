@@ -60,12 +60,18 @@ private:
     usb_host_client_handle_t _clientHandle;
     usb_device_handle_t _deviceHandle;
     TaskHandle_t _libraryTaskHandle;
+    uint8_t _midiInterfaceNumber;
+    uint8_t _midiAlternateSetting;
+    uint8_t _midiEndpointOut;
 
     static void libraryTask(void* arg);
     static void clientEventCallback(const usb_host_client_event_msg_t* event, void* arg);
     void handleNewDevice(uint8_t address);
     void handleDeviceGone(usb_device_handle_t device);
     void logConfiguration(const usb_config_desc_t* config) const;
+    bool claimMidiInterface(const usb_config_desc_t* config);
+    bool submitMidiPacket(const uint8_t packet[4]);
+    static void midiTransferCallback(usb_transfer_t* transfer);
 #endif
 
     ConnectionCallback _connCb;

@@ -68,3 +68,15 @@ Do not add raw captures to Git. Files named `tonex-diagnostic-*.json` and JSON f
 - Cancellation releases the port and a second sync can start.
 - The exported diagnostic can be parsed and summarized.
 - The browser does not attempt bridge reconnection on a normal development server.
+
+## 5. ESP32 WLAN and USB-MIDI Vertical Slice
+
+- Configure `firmware/include/wifi_secrets.h`, then upload both firmware and LittleFS data.
+- Confirm the ESP32 logs a DHCP address and that another device on the same WLAN can open it.
+- Connect the TONEX to the native USB host port and retain the logged device, interface, and endpoint descriptors.
+- Confirm the bridge reports the pedal disconnected before attachment and connected after enumeration.
+- Look for `MIDI ready` with the claimed interface and bulk OUT endpoint.
+- From the remotely hosted application, select `00A`, `42B`, `42C`, and `49C` and verify each change on the pedal.
+- Unplug and reconnect the pedal, then repeat one preset change without rebooting the ESP32.
+
+If MIDI does not become ready, do not guess endpoint numbers in code. Preserve the descriptor log and update the interface matcher from that evidence.

@@ -173,4 +173,22 @@ namespace ToneXHDLC {
         }
         return msg;
     }
+
+    UsbMidiPackets getUsbMidiPackets(uint8_t bank, char slot, uint8_t channel) {
+        const MidiMessage midi = getMidiBankSelectAndPC(bank, slot, channel);
+        UsbMidiPackets packets = {};
+
+        // USB-MIDI 1.0 event packets use cable 0 and a Code Index Number
+        // matching the MIDI message type in the low nibble.
+        packets.bankSelect[0] = 0x0B; // Control Change
+        packets.bankSelect[1] = midi.bankSelect[0];
+        packets.bankSelect[2] = midi.bankSelect[1];
+        packets.bankSelect[3] = midi.bankSelect[2];
+
+        packets.programChange[0] = 0x0C; // Program Change
+        packets.programChange[1] = midi.programChange[0];
+        packets.programChange[2] = midi.programChange[1];
+        packets.programChange[3] = 0x00;
+        return packets;
+    }
 }
