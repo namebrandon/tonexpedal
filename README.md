@@ -219,7 +219,7 @@ The pedal exposes two USB interfaces:
                                           ↑ NAME_MARKER
 ```
 
-The parameters section starts with marker `BA 03 BA 6D` (`PARAM_MARKER`), followed by encoded floats `0x88` + 4 bytes (little-endian):
+The parameters section starts with marker `BA 03 BA 29` (`PARAM_MARKER`), followed by encoded floats `0x88` + 4 bytes (little-endian):
 
 | Parameter index | Byte offset (×5) | Description |
 |----------------|-------------------|-------------|

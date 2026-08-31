@@ -221,7 +221,7 @@ Le pédalier expose deux interfaces USB :
                                            ↑ NAME_MARKER
 ```
 
-La section paramètres commence par le marker `BA 03 BA 6D` (`PARAM_MARKER`), suivi de floats encodés `0x88` + 4 octets (little-endian) :
+La section paramètres commence par le marker `BA 03 BA 29` (`PARAM_MARKER`), suivi de floats encodés `0x88` + 4 octets (little-endian) :
 
 | Index paramètre | Octet offset (×5) | Description |
 |----------------|-------------------|-------------|

@@ -105,6 +105,10 @@ describe('ToneX Preset Request Commands', () => {
 });
 
 describe('ToneX Binary Marker & Preset Decoding', () => {
+    it('uses the parameter marker observed on a full-size TONEX Pedal', () => {
+        assert.deepStrictEqual(Array.from(PARAM_MARKER), [0xBA, 0x03, 0xBA, 0x29]);
+    });
+
     it('extracts bytes following a specified marker', () => {
         const data = new Uint8Array([0x01, 0x02, 0xB9, 0x04, 0xB9, 0x02, 0xBC, 0x21, 0x50, 0x6C, 0x65, 0x78, 0x69]);
         const extracted = extractAfterMarker(data, NAME_MARKER);

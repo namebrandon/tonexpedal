@@ -522,7 +522,7 @@ slot = ['A', 'B', 'C'][pc % 3]</code></pre>
                                            ↑ NAME_MARKER</code></pre>
 
     <h3 data-t="serial-params-title">Section paramètres</h3>
-    <p data-t="serial-params-desc">La section commence par le marker <code>BA 03 BA 6D</code> (<code>PARAM_MARKER</code>), suivie de floats encodés : <code>0x88</code> + 4 octets (little-endian).</p>
+    <p data-t="serial-params-desc">La section commence par le marker <code>BA 03 BA 29</code> (<code>PARAM_MARKER</code>), suivie de floats encodés : <code>0x88</code> + 4 octets (little-endian).</p>
     <table>
         <tr><th>Index</th><th>Offset (×5)</th><th data-t="th-parameter">Paramètre</th><th data-t="th-values">Valeurs</th></tr>
         <tr><td>17</td><td>85</td><td><strong>AMP Enable</strong></td><td>0.0 = off, &gt;0.5 = on</td></tr>
@@ -687,7 +687,7 @@ transportDisconnect()     → serialPort.close() ou usbDevice.close()</code></pr
             'cmd-bytes': 'octets', 'cmd-bytes2': 'octets (escape <code>0x80</code>)',
             'serial-resp-title': 'Réponse preset — Structure',
             'serial-params-title': 'Section paramètres',
-            'serial-params-desc': 'La section commence par le marker <code>BA 03 BA 6D</code> (<code>PARAM_MARKER</code>), suivie de floats encodés : <code>0x88</code> + 4 octets (little-endian).',
+            'serial-params-desc': 'La section commence par le marker <code>BA 03 BA 29</code> (<code>PARAM_MARKER</code>), suivie de floats encodés : <code>0x88</code> + 4 octets (little-endian).',
             'th-parameter': 'Paramètre', 'th-values': 'Valeurs',
             'serial-seq-title': 'Séquence de synchronisation',
             'seq-1': 'Ouvrir port série (115200 bauds)',
@@ -807,7 +807,7 @@ transportDisconnect()     → serialPort.close() ou usbDevice.close()</code></pr
             'cmd-bytes': 'bytes', 'cmd-bytes2': 'bytes (escape <code>0x80</code>)',
             'serial-resp-title': 'Preset Response — Structure',
             'serial-params-title': 'Parameters Section',
-            'serial-params-desc': 'The section starts with marker <code>BA 03 BA 6D</code> (<code>PARAM_MARKER</code>), followed by encoded floats: <code>0x88</code> + 4 bytes (little-endian).',
+            'serial-params-desc': 'The section starts with marker <code>BA 03 BA 29</code> (<code>PARAM_MARKER</code>), followed by encoded floats: <code>0x88</code> + 4 bytes (little-endian).',
             'th-parameter': 'Parameter', 'th-values': 'Values',
             'serial-seq-title': 'Sync Sequence',
             'seq-1': 'Open serial port (115200 bauds)',

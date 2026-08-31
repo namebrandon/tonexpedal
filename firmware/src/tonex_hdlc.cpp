@@ -17,7 +17,7 @@ namespace ToneXHDLC {
     };
 
     const uint8_t PARAM_MARKER[4] = {
-        0xBA, 0x03, 0xBA, 0x6D
+        0xBA, 0x03, 0xBA, 0x29
     };
 
     static const char SLOTS[3] = {'A', 'B', 'C'};

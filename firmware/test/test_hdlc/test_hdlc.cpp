@@ -112,6 +112,11 @@ void test_decode_preset_response(void) {
     TEST_ASSERT_FALSE(preset.cab);
 }
 
+void test_full_size_tonex_parameter_marker(void) {
+    const uint8_t expected[] = {0xBA, 0x03, 0xBA, 0x29};
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, ToneXHDLC::PARAM_MARKER, sizeof(expected));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_crc_ccitt_calculation);
@@ -122,5 +127,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_midi_bank_select_commands);
     RUN_TEST(test_usb_midi_event_packets);
     RUN_TEST(test_decode_preset_response);
+    RUN_TEST(test_full_size_tonex_parameter_marker);
     return UNITY_END();
 }
