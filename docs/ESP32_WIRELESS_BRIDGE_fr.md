@@ -6,7 +6,7 @@ L'objectif de ce sous-projet est de transformer le **TONEX Pedal Controller** en
 
 En connectant une carte microcontrôleur **ESP32-S3** à la pédale TONEX via USB, l'ESP32 agit comme un serveur web autonome, un pont WebSocket et un hôte USB (USB Host). Cela permet la navigation, l'édition, la synchronisation de la bibliothèque et le changement de presets en temps réel depuis n'importe quel appareil connecté au réseau local (iPad sur le canapé, smartphone sur scène, ou navigateur d'ordinateur) avec **une latence imperceptible** et **sans nécessiter d'ordinateur hôte**.
 
-> **État de l'implémentation :** l'hébergement WLAN, la découverte du pont, les messages WebSocket, l'énumération physique USB et la sortie USB-MIDI sont implémentés. L'USB-MIDI doit encore être validé avec les descripteurs réels de la pédale. La synchronisation CDC reste indisponible tant que ses interfaces n'ont pas été revendiquées et validées.
+> **État de l'implémentation :** l'hébergement WLAN, la découverte du pont, les messages WebSocket, l'énumération physique USB, la sortie USB-MIDI et le transport CDC bulk sont implémentés. La correspondance des descripteurs USB-MIDI et CDC doit encore être validée sur la pédale. La machine d'état de synchronisation des 150 presets reste la dernière couche firmware.
 
 ```
 ┌────────────────────────────────┐

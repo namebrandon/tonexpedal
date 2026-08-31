@@ -24,7 +24,11 @@ ToneXUsbHost::ToneXUsbHost()
     : _connected(false), _syncing(false), _syncIndex(0), _lastSyncStepMs(0)
 #ifndef NATIVE_TEST
     , _hostInstalled(false), _clientHandle(nullptr), _deviceHandle(nullptr), _libraryTaskHandle(nullptr),
-      _midiInterfaceNumber(0xFF), _midiAlternateSetting(0), _midiEndpointOut(0)
+      _midiInterfaceNumber(0xFF), _midiAlternateSetting(0), _midiEndpointOut(0),
+      _cdcControlInterfaceNumber(0xFF), _cdcControlAlternateSetting(0),
+      _cdcDataInterfaceNumber(0xFF), _cdcDataAlternateSetting(0),
+      _cdcEndpointIn(0), _cdcEndpointOut(0), _cdcEndpointInMaxPacket(0),
+      _cdcReady(false), _cdcRxStream(nullptr), _cdcInTransfer(nullptr)
 #endif
 {}
 
@@ -45,6 +49,14 @@ bool ToneXUsbHost::begin() {
     }
     _hostInstalled = true;
 
+    _cdcRxStream = xStreamBufferCreate(4096, 1);
+    if (!_cdcRxStream) {
+        Serial.println("[USB] Could not allocate the CDC receive stream");
+        usb_host_uninstall();
+        _hostInstalled = false;
+        return false;
+    }
+
     BaseType_t taskCreated = xTaskCreatePinnedToCore(
         libraryTask,
         "tonex-usb-lib",
@@ -58,6 +70,8 @@ bool ToneXUsbHost::begin() {
         Serial.println("[USB] Could not start the host library event task");
         usb_host_uninstall();
         _hostInstalled = false;
+        vStreamBufferDelete(_cdcRxStream);
+        _cdcRxStream = nullptr;
         return false;
     }
 
@@ -74,6 +88,8 @@ bool ToneXUsbHost::begin() {
         _libraryTaskHandle = nullptr;
         usb_host_uninstall();
         _hostInstalled = false;
+        vStreamBufferDelete(_cdcRxStream);
+        _cdcRxStream = nullptr;
         return false;
     }
 
@@ -158,6 +174,7 @@ void ToneXUsbHost::handleNewDevice(uint8_t address) {
 
     _deviceHandle = device;
     claimMidiInterface(configuration);
+    claimCdcInterfaces(configuration);
     _connected = true;
     Serial.printf("[USB] TONEX connected at address %u\n", address);
     if (_connCb) _connCb(true);
@@ -169,14 +186,24 @@ void ToneXUsbHost::handleDeviceGone(usb_device_handle_t device) {
     _syncing = false;
     _syncIndex = 0;
     _connected = false;
+    _cdcReady = false;
     _deviceHandle = nullptr;
+
     if (_midiInterfaceNumber != 0xFF) {
         usb_host_interface_release(_clientHandle, device, _midiInterfaceNumber);
-        _midiInterfaceNumber = 0xFF;
-        _midiAlternateSetting = 0;
-        _midiEndpointOut = 0;
     }
+    if (_cdcDataInterfaceNumber != 0xFF && _cdcDataInterfaceNumber != _midiInterfaceNumber) {
+        usb_host_interface_release(_clientHandle, device, _cdcDataInterfaceNumber);
+    }
+    if (_cdcControlInterfaceNumber != 0xFF &&
+        _cdcControlInterfaceNumber != _cdcDataInterfaceNumber &&
+        _cdcControlInterfaceNumber != _midiInterfaceNumber) {
+        usb_host_interface_release(_clientHandle, device, _cdcControlInterfaceNumber);
+    }
+
     usb_host_device_close(_clientHandle, device);
+    resetClaimedInterfaces();
+    if (_cdcRxStream) xStreamBufferReset(_cdcRxStream);
     Serial.println("[USB] TONEX disconnected");
     if (_connCb) _connCb(false);
 }
@@ -318,6 +345,257 @@ void ToneXUsbHost::midiTransferCallback(usb_transfer_t* transfer) {
     }
     usb_host_transfer_free(transfer);
 }
+
+bool ToneXUsbHost::claimCdcInterfaces(const usb_config_desc_t* config) {
+    if (!config) return false;
+
+    struct DataCandidate {
+        uint8_t interfaceNumber = 0xFF;
+        uint8_t alternateSetting = 0;
+        uint8_t endpointIn = 0;
+        uint8_t endpointOut = 0;
+        uint16_t endpointInMaxPacket = 0;
+        bool preferred = false;
+    } selected;
+
+    uint8_t controlInterface = 0xFF;
+    uint8_t controlAlternate = 0;
+    const usb_intf_desc_t* current = nullptr;
+    DataCandidate currentData;
+
+    const auto finishCurrentInterface = [&]() {
+        if (!current || !currentData.endpointIn || !currentData.endpointOut) return;
+        const bool isMidi = current->bInterfaceClass == USB_CLASS_AUDIO && current->bInterfaceSubClass == 0x03;
+        if (isMidi) return;
+
+        const bool preferred = current->bInterfaceClass == USB_CLASS_CDC_DATA;
+        if (selected.interfaceNumber == 0xFF || (preferred && !selected.preferred)) {
+            currentData.interfaceNumber = current->bInterfaceNumber;
+            currentData.alternateSetting = current->bAlternateSetting;
+            currentData.preferred = preferred;
+            selected = currentData;
+        }
+    };
+
+    const uint8_t* bytes = config->val;
+    uint16_t offset = config->bLength;
+    while (offset + 2 <= config->wTotalLength) {
+        const usb_standard_desc_t* standard = reinterpret_cast<const usb_standard_desc_t*>(bytes + offset);
+        if (standard->bLength < 2 || offset + standard->bLength > config->wTotalLength) break;
+
+        if (standard->bDescriptorType == USB_B_DESCRIPTOR_TYPE_INTERFACE && standard->bLength >= sizeof(usb_intf_desc_t)) {
+            finishCurrentInterface();
+            current = reinterpret_cast<const usb_intf_desc_t*>(standard);
+            currentData = DataCandidate();
+            if (current->bInterfaceClass == USB_CLASS_COMM && controlInterface == 0xFF) {
+                controlInterface = current->bInterfaceNumber;
+                controlAlternate = current->bAlternateSetting;
+            }
+        } else if (current && standard->bDescriptorType == USB_B_DESCRIPTOR_TYPE_ENDPOINT && standard->bLength >= sizeof(usb_ep_desc_t)) {
+            const usb_ep_desc_t* endpoint = reinterpret_cast<const usb_ep_desc_t*>(standard);
+            const bool isBulk = (endpoint->bmAttributes & 0x03) == USB_TRANSFER_TYPE_BULK;
+            if (isBulk && (endpoint->bEndpointAddress & 0x80)) {
+                currentData.endpointIn = endpoint->bEndpointAddress;
+                currentData.endpointInMaxPacket = endpoint->wMaxPacketSize;
+            } else if (isBulk) {
+                currentData.endpointOut = endpoint->bEndpointAddress;
+            }
+        }
+
+        offset += standard->bLength;
+    }
+    finishCurrentInterface();
+
+    if (selected.interfaceNumber == 0xFF) {
+        Serial.println("[USB] No CDC data interface with bulk IN and OUT endpoints was found");
+        return false;
+    }
+
+    if (controlInterface != 0xFF) {
+        esp_err_t err = usb_host_interface_claim(_clientHandle, _deviceHandle, controlInterface, controlAlternate);
+        if (err != ESP_OK) {
+            Serial.printf("[USB] Could not claim CDC control interface %u: %s\n", controlInterface, esp_err_to_name(err));
+            return false;
+        }
+    }
+
+    if (selected.interfaceNumber != controlInterface) {
+        const esp_err_t err = usb_host_interface_claim(
+            _clientHandle,
+            _deviceHandle,
+            selected.interfaceNumber,
+            selected.alternateSetting
+        );
+        if (err != ESP_OK) {
+            Serial.printf("[USB] Could not claim CDC data interface %u: %s\n", selected.interfaceNumber, esp_err_to_name(err));
+            if (controlInterface != 0xFF) usb_host_interface_release(_clientHandle, _deviceHandle, controlInterface);
+            return false;
+        }
+    }
+
+    _cdcControlInterfaceNumber = controlInterface;
+    _cdcControlAlternateSetting = controlAlternate;
+    _cdcDataInterfaceNumber = selected.interfaceNumber;
+    _cdcDataAlternateSetting = selected.alternateSetting;
+    _cdcEndpointIn = selected.endpointIn;
+    _cdcEndpointOut = selected.endpointOut;
+    _cdcEndpointInMaxPacket = selected.endpointInMaxPacket;
+
+    Serial.printf(
+        "[USB] CDC claimed: control=%d data=%u endpoint_in=0x%02X endpoint_out=0x%02X max_packet=%u\n",
+        _cdcControlInterfaceNumber == 0xFF ? -1 : _cdcControlInterfaceNumber,
+        _cdcDataInterfaceNumber,
+        _cdcEndpointIn,
+        _cdcEndpointOut,
+        _cdcEndpointInMaxPacket
+    );
+
+    if (_cdcRxStream) xStreamBufferReset(_cdcRxStream);
+    if (_cdcControlInterfaceNumber != 0xFF) {
+        return submitCdcControlRequest(0x20); // SET_LINE_CODING
+    }
+
+    _cdcReady = submitCdcRead();
+    return _cdcReady;
+}
+
+bool ToneXUsbHost::submitCdcControlRequest(uint8_t request) {
+    const bool lineCoding = request == 0x20;
+    const size_t payloadLength = lineCoding ? 7 : 0;
+    usb_transfer_t* transfer = nullptr;
+    esp_err_t err = usb_host_transfer_alloc(sizeof(usb_setup_packet_t) + payloadLength, 0, &transfer);
+    if (err != ESP_OK || !transfer) {
+        Serial.printf("[USB] Could not allocate CDC control transfer: %s\n", esp_err_to_name(err));
+        return false;
+    }
+
+    usb_setup_packet_t* setup = reinterpret_cast<usb_setup_packet_t*>(transfer->data_buffer);
+    setup->bmRequestType = 0x21;
+    setup->bRequest = request;
+    setup->wValue = lineCoding ? 0 : 0x0003;
+    setup->wIndex = _cdcControlInterfaceNumber;
+    setup->wLength = payloadLength;
+
+    if (lineCoding) {
+        static const uint8_t coding[7] = {0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08};
+        std::memcpy(transfer->data_buffer + sizeof(usb_setup_packet_t), coding, sizeof(coding));
+    }
+
+    transfer->num_bytes = sizeof(usb_setup_packet_t) + payloadLength;
+    transfer->device_handle = _deviceHandle;
+    transfer->bEndpointAddress = 0;
+    transfer->callback = cdcControlTransferCallback;
+    transfer->context = this;
+
+    err = usb_host_transfer_submit_control(_clientHandle, transfer);
+    if (err != ESP_OK) {
+        Serial.printf("[USB] Could not submit CDC control request 0x%02X: %s\n", request, esp_err_to_name(err));
+        usb_host_transfer_free(transfer);
+        return false;
+    }
+    return true;
+}
+
+void ToneXUsbHost::cdcControlTransferCallback(usb_transfer_t* transfer) {
+    ToneXUsbHost* host = static_cast<ToneXUsbHost*>(transfer->context);
+    const usb_setup_packet_t* setup = reinterpret_cast<const usb_setup_packet_t*>(transfer->data_buffer);
+    const uint8_t request = setup->bRequest;
+    const bool completed = transfer->status == USB_TRANSFER_STATUS_COMPLETED;
+    if (!completed) {
+        Serial.printf("[USB] CDC control request 0x%02X failed with status=%d\n", request, transfer->status);
+    }
+    usb_host_transfer_free(transfer);
+
+    if (!completed || !host->_deviceHandle) return;
+    if (request == 0x20) {
+        host->submitCdcControlRequest(0x22); // SET_CONTROL_LINE_STATE
+    } else if (request == 0x22) {
+        host->_cdcReady = host->submitCdcRead();
+        if (host->_cdcReady) Serial.println("[USB] CDC transport ready");
+    }
+}
+
+bool ToneXUsbHost::submitCdcRead() {
+    if (!_deviceHandle || !_cdcEndpointIn || !_cdcEndpointInMaxPacket) return false;
+
+    if (!_cdcInTransfer) {
+        const esp_err_t err = usb_host_transfer_alloc(_cdcEndpointInMaxPacket, 0, &_cdcInTransfer);
+        if (err != ESP_OK || !_cdcInTransfer) {
+            Serial.printf("[USB] Could not allocate CDC IN transfer: %s\n", esp_err_to_name(err));
+            return false;
+        }
+    }
+
+    _cdcInTransfer->num_bytes = _cdcEndpointInMaxPacket;
+    _cdcInTransfer->device_handle = _deviceHandle;
+    _cdcInTransfer->bEndpointAddress = _cdcEndpointIn;
+    _cdcInTransfer->callback = cdcInTransferCallback;
+    _cdcInTransfer->context = this;
+
+    const esp_err_t err = usb_host_transfer_submit(_cdcInTransfer);
+    if (err != ESP_OK) {
+        Serial.printf("[USB] Could not submit CDC IN transfer: %s\n", esp_err_to_name(err));
+        usb_host_transfer_free(_cdcInTransfer);
+        _cdcInTransfer = nullptr;
+        return false;
+    }
+    return true;
+}
+
+void ToneXUsbHost::cdcInTransferCallback(usb_transfer_t* transfer) {
+    ToneXUsbHost* host = static_cast<ToneXUsbHost*>(transfer->context);
+    if (transfer->status == USB_TRANSFER_STATUS_COMPLETED) {
+        if (transfer->actual_num_bytes > 0 && host->_cdcRxStream) {
+            const size_t written = xStreamBufferSend(
+                host->_cdcRxStream,
+                transfer->data_buffer,
+                transfer->actual_num_bytes,
+                0
+            );
+            if (written != static_cast<size_t>(transfer->actual_num_bytes)) {
+                Serial.println("[USB] CDC receive stream overflow");
+            }
+        }
+        if (host->_deviceHandle && host->_cdcReady) {
+            transfer->num_bytes = host->_cdcEndpointInMaxPacket;
+            const esp_err_t err = usb_host_transfer_submit(transfer);
+            if (err == ESP_OK) return;
+            Serial.printf("[USB] Could not resubmit CDC IN transfer: %s\n", esp_err_to_name(err));
+        }
+    } else if (transfer->status != USB_TRANSFER_STATUS_NO_DEVICE && transfer->status != USB_TRANSFER_STATUS_CANCELED) {
+        Serial.printf("[USB] CDC IN transfer failed with status=%d\n", transfer->status);
+    }
+
+    host->_cdcReady = false;
+    host->_cdcInTransfer = nullptr;
+    usb_host_transfer_free(transfer);
+}
+
+void ToneXUsbHost::cdcOutTransferCallback(usb_transfer_t* transfer) {
+    if (transfer->status != USB_TRANSFER_STATUS_COMPLETED || transfer->actual_num_bytes != transfer->num_bytes) {
+        Serial.printf(
+            "[USB] CDC OUT transfer failed: status=%d bytes=%d/%d\n",
+            transfer->status,
+            transfer->actual_num_bytes,
+            transfer->num_bytes
+        );
+    }
+    usb_host_transfer_free(transfer);
+}
+
+void ToneXUsbHost::resetClaimedInterfaces() {
+    _midiInterfaceNumber = 0xFF;
+    _midiAlternateSetting = 0;
+    _midiEndpointOut = 0;
+    _cdcControlInterfaceNumber = 0xFF;
+    _cdcControlAlternateSetting = 0;
+    _cdcDataInterfaceNumber = 0xFF;
+    _cdcDataAlternateSetting = 0;
+    _cdcEndpointIn = 0;
+    _cdcEndpointOut = 0;
+    _cdcEndpointInMaxPacket = 0;
+    _cdcReady = false;
+}
 #endif
 
 bool ToneXUsbHost::isConnected() const {
@@ -373,8 +651,34 @@ void ToneXUsbHost::onPresetReceived(PresetReceivedCallback cb) {
 }
 
 bool ToneXUsbHost::sendCdcFrame(const std::vector<uint8_t>& frame) {
+#ifdef NATIVE_TEST
     (void)frame;
     return false;
+#else
+    if (!_connected || !_deviceHandle || !_cdcReady || !_cdcEndpointOut || frame.empty()) return false;
+
+    usb_transfer_t* transfer = nullptr;
+    esp_err_t err = usb_host_transfer_alloc(frame.size(), 0, &transfer);
+    if (err != ESP_OK || !transfer) {
+        Serial.printf("[USB] Could not allocate CDC OUT transfer: %s\n", esp_err_to_name(err));
+        return false;
+    }
+
+    std::memcpy(transfer->data_buffer, frame.data(), frame.size());
+    transfer->num_bytes = frame.size();
+    transfer->device_handle = _deviceHandle;
+    transfer->bEndpointAddress = _cdcEndpointOut;
+    transfer->callback = cdcOutTransferCallback;
+    transfer->context = this;
+
+    err = usb_host_transfer_submit(transfer);
+    if (err != ESP_OK) {
+        Serial.printf("[USB] Could not submit CDC OUT transfer: %s\n", esp_err_to_name(err));
+        usb_host_transfer_free(transfer);
+        return false;
+    }
+    return true;
+#endif
 }
 
 std::vector<uint8_t> ToneXUsbHost::readCdcFrame(uint32_t timeoutMs) {

@@ -76,6 +76,7 @@ Do not add raw captures to Git. Files named `tonex-diagnostic-*.json` and JSON f
 - Connect the TONEX to the native USB host port and retain the logged device, interface, and endpoint descriptors.
 - Confirm the bridge reports the pedal disconnected before attachment and connected after enumeration.
 - Look for `MIDI ready` with the claimed interface and bulk OUT endpoint.
+- Look for `CDC claimed`, followed by `CDC transport ready`, and retain any control-transfer error.
 - From the remotely hosted application, select `00A`, `42B`, `42C`, and `49C` and verify each change on the pedal.
 - Unplug and reconnect the pedal, then repeat one preset change without rebooting the ESP32.
 

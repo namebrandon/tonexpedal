@@ -10,6 +10,7 @@
 #include <usb/usb_host.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/stream_buffer.h>
 #endif
 
 struct ToneXPresetInfo {
@@ -63,6 +64,16 @@ private:
     uint8_t _midiInterfaceNumber;
     uint8_t _midiAlternateSetting;
     uint8_t _midiEndpointOut;
+    uint8_t _cdcControlInterfaceNumber;
+    uint8_t _cdcControlAlternateSetting;
+    uint8_t _cdcDataInterfaceNumber;
+    uint8_t _cdcDataAlternateSetting;
+    uint8_t _cdcEndpointIn;
+    uint8_t _cdcEndpointOut;
+    uint16_t _cdcEndpointInMaxPacket;
+    volatile bool _cdcReady;
+    StreamBufferHandle_t _cdcRxStream;
+    usb_transfer_t* _cdcInTransfer;
 
     static void libraryTask(void* arg);
     static void clientEventCallback(const usb_host_client_event_msg_t* event, void* arg);
@@ -72,6 +83,13 @@ private:
     bool claimMidiInterface(const usb_config_desc_t* config);
     bool submitMidiPacket(const uint8_t packet[4]);
     static void midiTransferCallback(usb_transfer_t* transfer);
+    bool claimCdcInterfaces(const usb_config_desc_t* config);
+    bool submitCdcControlRequest(uint8_t request);
+    bool submitCdcRead();
+    static void cdcControlTransferCallback(usb_transfer_t* transfer);
+    static void cdcInTransferCallback(usb_transfer_t* transfer);
+    static void cdcOutTransferCallback(usb_transfer_t* transfer);
+    void resetClaimedInterfaces();
 #endif
 
     ConnectionCallback _connCb;
