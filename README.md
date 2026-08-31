@@ -173,6 +173,14 @@ The ESP32 target is pinned to PlatformIO Espressif32 7.0.1 with an explicit N16R
 
 For direct-USB hardware validation and opt-in diagnostic capture instructions, see the [TONEX Hardware Test Checklist](docs/TONEX_HARDWARE_TEST_CHECKLIST.md).
 
+With a pedal attached directly on macOS or Linux, run the read-only command-line protocol probe:
+
+```bash
+npm run hardware:probe
+```
+
+It checks Hello, State, and the four preset-request boundaries without exposing preset names. Add `-- --all` to validate all 150 preset responses.
+
 ### MIDI Protocol
 
 The TONEX Pedal uses 50 banks × 3 slots (A/B/C) = 150 presets.
@@ -224,7 +232,7 @@ The parameters section starts with marker `BA 03 BA 29` (`PARAM_MARKER`), follow
 | Parameter index | Byte offset (×5) | Description |
 |----------------|-------------------|-------------|
 | 17 | 85 | **AMP Enable** — 0.0 = off, >0.5 = on |
-| 22 | 110 | **CAB Type** — 0.0 = off, 1.0 = VIR, 2.0 = Tone Model |
+| 23 | 115 | **CAB Type** — 0.0 = Tone Model, 1.0 = VIR, 2.0 = disabled |
 
 ### Device ID
 

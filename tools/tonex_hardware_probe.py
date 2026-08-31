@@ -1,0 +1,381 @@
+#!/usr/bin/env python3
+"""Read-only TONEX Pedal CDC protocol probe for macOS and Linux."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import glob
+import json
+import os
+import select
+import struct
+import sys
+import time
+from dataclasses import asdict, dataclass
+from typing import Iterable, Optional, Sequence
+
+
+HELLO_CMD = bytes.fromhex("b9 03 00 82 04 00 80 10 01 b9 02 02 10")
+REQUEST_STATE_CMD = bytes.fromhex("b9 03 00 82 06 00 80 10 03 b9 02 81 01 02 10")
+NAME_MARKER = bytes.fromhex("b9 04 b9 02 bc 21")
+PARAM_MARKER = bytes.fromhex("ba 03 ba 29")
+AMP_ENABLE_INDEX = 17
+CAB_TYPE_INDEX = 23
+FLOAT_SIZE = 5
+TOTAL_PRESETS = 150
+DEFAULT_PRESETS = (0, 127, 128, 149)
+
+
+class ProbeError(RuntimeError):
+    """Raised when the hardware or protocol probe cannot continue safely."""
+
+
+class ProtocolError(ProbeError):
+    """Raised when a pedal response does not match the expected protocol."""
+
+
+@dataclass
+class PresetResult:
+    index: int
+    payload_bytes: int
+    name_present: bool
+    amp: bool
+    cab: bool
+    cab_type: str
+    name: Optional[str] = None
+
+
+def calculate_crc(data: bytes) -> int:
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = ((crc >> 1) ^ 0x8408) if crc & 1 else crc >> 1
+    return (~crc) & 0xFFFF
+
+
+def build_frame(payload: bytes) -> bytes:
+    body = payload + calculate_crc(payload).to_bytes(2, "little")
+    framed = bytearray([0x7E])
+    for byte in body:
+        if byte in (0x7D, 0x7E):
+            framed.extend((0x7D, byte ^ 0x20))
+        else:
+            framed.append(byte)
+    framed.append(0x7E)
+    return bytes(framed)
+
+
+def deframe(frame: bytes) -> bytes:
+    if len(frame) < 4 or frame[0] != 0x7E or frame[-1] != 0x7E:
+        raise ProtocolError("Invalid HDLC frame delimiters")
+
+    body = bytearray()
+    escaped = False
+    for byte in frame[1:-1]:
+        if escaped:
+            body.append(byte ^ 0x20)
+            escaped = False
+        elif byte == 0x7D:
+            escaped = True
+        else:
+            body.append(byte)
+
+    if escaped or len(body) < 2:
+        raise ProtocolError("Truncated HDLC frame")
+
+    payload = bytes(body[:-2])
+    received_crc = int.from_bytes(body[-2:], "little")
+    expected_crc = calculate_crc(payload)
+    if received_crc != expected_crc:
+        raise ProtocolError(
+            f"HDLC CRC mismatch: received 0x{received_crc:04x}, expected 0x{expected_crc:04x}"
+        )
+    return payload
+
+
+def create_preset_request(index: int) -> bytes:
+    if not 0 <= index < TOTAL_PRESETS:
+        raise ValueError(f"Preset index must be between 0 and {TOTAL_PRESETS - 1}")
+    request = bytearray.fromhex("b9 03 81 00 02 82 06 00 80 10 03 b9 04 10 01")
+    if index >= 128:
+        request.append(0x80)
+    request.extend((index, 0x00))
+    return bytes(request)
+
+
+def parse_preset_response(index: int, payload: bytes, include_name: bool = False) -> PresetResult:
+    name_marker_offset = payload.find(NAME_MARKER)
+    if name_marker_offset < 0:
+        raise ProtocolError(f"Preset {index} response is missing the name marker")
+
+    name_offset = name_marker_offset + len(NAME_MARKER)
+    name_bytes = payload[name_offset : name_offset + 32]
+    if len(name_bytes) != 32:
+        raise ProtocolError(f"Preset {index} response has a truncated name field")
+    name = name_bytes.split(b"\0", 1)[0].decode("utf-8", errors="replace").rstrip(" \r\n")
+    if not name:
+        raise ProtocolError(f"Preset {index} response has an empty name field")
+
+    parameter_marker_offset = payload.find(PARAM_MARKER)
+    if parameter_marker_offset < 0:
+        raise ProtocolError(f"Preset {index} response is missing the parameter marker")
+    parameter_offset = parameter_marker_offset + len(PARAM_MARKER)
+
+    def read_tagged_float(parameter_index: int, label: str) -> float:
+        offset = parameter_offset + parameter_index * FLOAT_SIZE
+        encoded = payload[offset : offset + FLOAT_SIZE]
+        if len(encoded) != FLOAT_SIZE or encoded[0] != 0x88:
+            raise ProtocolError(f"Preset {index} response has an invalid {label} field")
+        return struct.unpack("<f", encoded[1:])[0]
+
+    amp_value = read_tagged_float(AMP_ENABLE_INDEX, "AMP")
+    cab_value = read_tagged_float(CAB_TYPE_INDEX, "CAB")
+    cab_types = {0.0: "tone_model", 1.0: "vir", 2.0: "disabled"}
+    if cab_value not in cab_types:
+        raise ProtocolError(f"Preset {index} response has unknown CAB type {cab_value}")
+    return PresetResult(
+        index=index,
+        payload_bytes=len(payload),
+        name_present=True,
+        amp=amp_value > 0.5,
+        cab=cab_value != 2.0,
+        cab_type=cab_types[cab_value],
+        name=name if include_name else None,
+    )
+
+
+def discover_port() -> str:
+    candidates = sorted(
+        set(
+            glob.glob("/dev/cu.usbmodem*")
+            + glob.glob("/dev/ttyACM*")
+            + glob.glob("/dev/ttyUSB*")
+        )
+    )
+    if not candidates:
+        raise ProbeError("No USB serial device found; pass --port explicitly")
+    if len(candidates) > 1:
+        joined = ", ".join(candidates)
+        raise ProbeError(f"Multiple USB serial devices found ({joined}); pass --port explicitly")
+    return candidates[0]
+
+
+class PosixSerialTransport:
+    def __init__(self, port: str, timeout: float):
+        self.port = port
+        self.timeout = timeout
+        self.fd: Optional[int] = None
+        self.original_attributes = None
+
+    def __enter__(self) -> "PosixSerialTransport":
+        if os.name != "posix":
+            raise ProbeError("The command-line probe currently supports macOS and Linux")
+
+        import termios
+
+        try:
+            self.fd = os.open(self.port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        except OSError as exc:
+            raise ProbeError(f"Could not open {self.port}: {exc}") from exc
+
+        try:
+            attributes = termios.tcgetattr(self.fd)
+            self.original_attributes = copy.deepcopy(attributes)
+            attributes[0] = 0
+            attributes[1] = 0
+            attributes[2] &= ~(termios.PARENB | termios.CSTOPB | termios.CSIZE)
+            if hasattr(termios, "CRTSCTS"):
+                attributes[2] &= ~termios.CRTSCTS
+            attributes[2] |= termios.CS8 | termios.CLOCAL | termios.CREAD
+            attributes[3] = 0
+            attributes[4] = termios.B115200
+            attributes[5] = termios.B115200
+            attributes[6][termios.VMIN] = 0
+            attributes[6][termios.VTIME] = 0
+            termios.tcsetattr(self.fd, termios.TCSANOW, attributes)
+            termios.tcflush(self.fd, termios.TCIOFLUSH)
+            time.sleep(0.5)
+        except Exception:
+            os.close(self.fd)
+            self.fd = None
+            raise
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        if self.fd is None:
+            return
+        import termios
+
+        if self.original_attributes is not None:
+            try:
+                termios.tcsetattr(self.fd, termios.TCSANOW, self.original_attributes)
+            except termios.error:
+                pass
+        os.close(self.fd)
+        self.fd = None
+
+    def exchange(self, payload: bytes, label: str) -> bytes:
+        if self.fd is None:
+            raise ProbeError("Serial transport is not open")
+
+        import termios
+
+        try:
+            os.write(self.fd, build_frame(payload))
+            termios.tcdrain(self.fd)
+        except OSError as exc:
+            raise ProbeError(f"Could not send {label}: {exc}") from exc
+        return self._read_frame(label)
+
+    def _read_frame(self, label: str) -> bytes:
+        if self.fd is None:
+            raise ProbeError("Serial transport is not open")
+
+        deadline = time.monotonic() + self.timeout
+        pending = bytearray()
+        last_protocol_error: Optional[ProtocolError] = None
+        while time.monotonic() < deadline:
+            remaining = max(0.0, deadline - time.monotonic())
+            readable, _, _ = select.select([self.fd], [], [], remaining)
+            if not readable:
+                break
+            try:
+                chunk = os.read(self.fd, 4096)
+            except BlockingIOError:
+                continue
+            except OSError as exc:
+                raise ProbeError(f"Could not read {label}: {exc}") from exc
+
+            for byte in chunk:
+                if byte == 0x7E:
+                    if len(pending) > 1:
+                        pending.append(byte)
+                        try:
+                            return deframe(bytes(pending))
+                        except ProtocolError as exc:
+                            last_protocol_error = exc
+                    pending = bytearray([0x7E])
+                elif pending:
+                    pending.append(byte)
+                    if len(pending) > 16384:
+                        pending.clear()
+
+        if last_protocol_error is not None:
+            raise ProtocolError(f"No valid response to {label}: {last_protocol_error}")
+        raise ProbeError(f"Timed out waiting for {label}")
+
+
+def run_probe(
+    port: str,
+    preset_indices: Iterable[int],
+    timeout: float,
+    include_names: bool,
+) -> dict:
+    results = []
+    with PosixSerialTransport(port, timeout) as transport:
+        hello = transport.exchange(HELLO_CMD, "hello response")
+        time.sleep(0.2)
+        state = transport.exchange(REQUEST_STATE_CMD, "state response")
+        time.sleep(0.2)
+
+        for index in preset_indices:
+            payload = transport.exchange(create_preset_request(index), f"preset {index}")
+            results.append(asdict(parse_preset_response(index, payload, include_names)))
+            time.sleep(0.04)
+
+    if not include_names:
+        for result in results:
+            result.pop("name", None)
+    return {
+        "status": "ok",
+        "read_only": True,
+        "port": port,
+        "baud_rate": 115200,
+        "hello_payload_bytes": len(hello),
+        "state_payload_bytes": len(state),
+        "presets_checked": len(results),
+        "presets": results,
+    }
+
+
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("timeout must be greater than zero")
+    return parsed
+
+
+def preset_index(value: str) -> int:
+    parsed = int(value)
+    if not 0 <= parsed < TOTAL_PRESETS:
+        raise argparse.ArgumentTypeError(f"preset must be between 0 and {TOTAL_PRESETS - 1}")
+    return parsed
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run read-only CDC protocol checks against a connected TONEX Pedal."
+    )
+    parser.add_argument("--port", help="USB serial device; auto-detected when exactly one is present")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
+        "--preset",
+        action="append",
+        type=preset_index,
+        dest="presets",
+        help="preset index to validate; repeat for multiple presets",
+    )
+    selection.add_argument(
+        "--all",
+        action="store_true",
+        help=f"validate all {TOTAL_PRESETS} presets",
+    )
+    parser.add_argument("--timeout", type=positive_float, default=3.0, help="response timeout in seconds")
+    parser.add_argument("--show-names", action="store_true", help="include preset names in output")
+    parser.add_argument("--json", action="store_true", help="emit JSON instead of human-readable output")
+    return parser.parse_args(argv)
+
+
+def print_human(result: dict) -> None:
+    print(f"port={result['port']} baud={result['baud_rate']} read_only=true")
+    print(f"hello=ok payload_bytes={result['hello_payload_bytes']}")
+    print(f"state=ok payload_bytes={result['state_payload_bytes']}")
+    for preset in result["presets"]:
+        fields = [
+            f"preset={preset['index']}",
+            f"payload_bytes={preset['payload_bytes']}",
+            "name_present=true",
+            f"amp={str(preset['amp']).lower()}",
+            f"cab={str(preset['cab']).lower()}",
+            f"cab_type={preset['cab_type']}",
+        ]
+        if "name" in preset:
+            fields.append(f"name={json.dumps(preset['name'], ensure_ascii=False)}")
+        print(" ".join(fields))
+    print(f"result=ok presets_checked={result['presets_checked']} port_closed=true")
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = parse_args(argv)
+    try:
+        port = args.port or discover_port()
+        indices = range(TOTAL_PRESETS) if args.all else (args.presets or DEFAULT_PRESETS)
+        result = run_probe(port, indices, args.timeout, args.show_names)
+    except (OSError, ProbeError, ValueError) as exc:
+        if args.json:
+            print(json.dumps({"status": "error", "message": str(exc)}))
+        else:
+            print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    else:
+        print_human(result)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

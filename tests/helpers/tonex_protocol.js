@@ -132,8 +132,12 @@ const REQUEST_STATE_CMD = new Uint8Array([0xb9, 0x03, 0x00, 0x82, 0x06, 0x00, 0x
 const NAME_MARKER = new Uint8Array([0xB9, 0x04, 0xB9, 0x02, 0xBC, 0x21]);
 const PARAM_MARKER = new Uint8Array([0xBA, 0x03, 0xBA, 0x29]);
 const AMP_ENABLE_INDEX = 17;
-const CAB_TYPE_INDEX = 22;
+const CAB_TYPE_INDEX = 23;
 const FLOAT_SIZE = 5;
+
+function isCabEnabled(cabType) {
+    return cabType === 0 || cabType === 1;
+}
 
 function createPresetRequest(index) {
     if (index < 128) {
@@ -168,5 +172,6 @@ module.exports = {
     PARAM_MARKER,
     AMP_ENABLE_INDEX,
     CAB_TYPE_INDEX,
-    FLOAT_SIZE
+    FLOAT_SIZE,
+    isCabEnabled
 };

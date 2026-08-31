@@ -140,7 +140,7 @@ namespace ToneXHDLC {
         constexpr size_t NAME_LENGTH = 32;
         constexpr size_t FLOAT_SIZE = 5;
         constexpr size_t AMP_ENABLE_INDEX = 17;
-        constexpr size_t CAB_TYPE_INDEX = 22;
+        constexpr size_t CAB_TYPE_INDEX = 23;
 
         preset = PresetData{"", false, false};
         const int nameMarkerOffset = findMarker(data, length, NAME_MARKER, sizeof(NAME_MARKER));
@@ -161,7 +161,8 @@ namespace ToneXHDLC {
             preset.amp = readFloat32(data, ampOffset + 1) > 0.5f;
         }
         if (cabOffset + FLOAT_SIZE <= length && data[cabOffset] == 0x88) {
-            preset.cab = readFloat32(data, cabOffset + 1) > 0.5f;
+            const float cabType = readFloat32(data, cabOffset + 1);
+            preset.cab = cabType == 0.0f || cabType == 1.0f;
         }
         return true;
     }

@@ -16,6 +16,14 @@ Use this checklist to establish a known-good computer-to-TONEX baseline before t
 - Navigate to `http://localhost:3000/?debug=1`. Confirm the **🧪 Diagnostics** button is visible.
 - Open browser developer tools and preserve the Console log.
 
+For a non-interactive, read-only protocol check on macOS or Linux, run:
+
+```bash
+npm run hardware:probe
+```
+
+The default probe validates Hello, State, and preset boundaries 0/127/128/149 without printing preset names. Use `npm run hardware:probe -- --all` to validate all 150 preset responses, or pass `--port` when more than one USB serial device is attached.
+
 ## 1. Original Direct-MIDI Path
 
 - Select the TONEX MIDI output and confirm the status turns green.

@@ -3,7 +3,8 @@
   "version": "1.2.0",
   "description": "Single-page web controller and ESP32 wireless bridge for the IK Multimedia TONEX Pedal",
   "scripts": {
-    "test": "node --test tests/*.test.js",
+    "test": "node --test tests/*.test.js && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "hardware:probe": "python3 tools/tonex_hardware_probe.py",
     "diagnostics:summary": "node tools/summarize_diagnostic.js"
   },
   "keywords": [

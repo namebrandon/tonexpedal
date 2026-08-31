@@ -99,17 +99,22 @@ void test_decode_preset_response(void) {
     std::memcpy(response.data() + parameterMarkerOffset, ToneXHDLC::PARAM_MARKER, sizeof(ToneXHDLC::PARAM_MARKER));
     const size_t parameterOffset = parameterMarkerOffset + sizeof(ToneXHDLC::PARAM_MARKER);
     const float amp = 1.0f;
-    const float cab = 0.0f;
+    const float cab = 2.0f;
     response[parameterOffset + 17 * 5] = 0x88;
     std::memcpy(response.data() + parameterOffset + 17 * 5 + 1, &amp, sizeof(amp));
-    response[parameterOffset + 22 * 5] = 0x88;
-    std::memcpy(response.data() + parameterOffset + 22 * 5 + 1, &cab, sizeof(cab));
+    response[parameterOffset + 23 * 5] = 0x88;
+    std::memcpy(response.data() + parameterOffset + 23 * 5 + 1, &cab, sizeof(cab));
 
     ToneXHDLC::PresetData preset;
     TEST_ASSERT_TRUE(ToneXHDLC::decodePresetResponse(response.data(), response.size(), preset));
     TEST_ASSERT_EQUAL_STRING("Captured Plexi", preset.name.c_str());
     TEST_ASSERT_TRUE(preset.amp);
     TEST_ASSERT_FALSE(preset.cab);
+
+    const float toneModelCab = 0.0f;
+    std::memcpy(response.data() + parameterOffset + 23 * 5 + 1, &toneModelCab, sizeof(toneModelCab));
+    TEST_ASSERT_TRUE(ToneXHDLC::decodePresetResponse(response.data(), response.size(), preset));
+    TEST_ASSERT_TRUE(preset.cab);
 }
 
 void test_full_size_tonex_parameter_marker(void) {

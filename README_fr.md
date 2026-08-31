@@ -226,7 +226,7 @@ La section paramètres commence par le marker `BA 03 BA 29` (`PARAM_MARKER`), su
 | Index paramètre | Octet offset (×5) | Description |
 |----------------|-------------------|-------------|
 | 17 | 85 | **AMP Enable** — 0.0 = off, >0.5 = on |
-| 22 | 110 | **CAB Type** — 0.0 = off, 1.0 = VIR, 2.0 = Tone Model |
+| 23 | 115 | **CAB Type** — 0.0 = Tone Model, 1.0 = VIR, 2.0 = désactivé |
 
 ### Device ID
 

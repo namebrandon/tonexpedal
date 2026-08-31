@@ -1884,8 +1884,12 @@
         const NAME_MARKER = new Uint8Array([0xB9, 0x04, 0xB9, 0x02, 0xBC, 0x21]);
         const PARAM_MARKER = new Uint8Array([0xBA, 0x03, 0xBA, 0x29]);
         const AMP_ENABLE_INDEX = 17;
-        const CAB_TYPE_INDEX = 22;
+        const CAB_TYPE_INDEX = 23;
         const FLOAT_SIZE = 5;
+
+        function isCabEnabled(cabType) {
+            return cabType === 0 || cabType === 1;
+        }
 
         function readFloat32(bytes, offset) {
             if (offset + 4 > bytes.length) return null;
@@ -2102,7 +2106,7 @@
                                     }
                                     const cabOff = CAB_TYPE_INDEX * FLOAT_SIZE;
                                     if (afterParam[cabOff] === 0x88) {
-                                        state.presets[key].cab = readFloat32(afterParam, cabOff + 1) > 0.5;
+                                        state.presets[key].cab = isCabEnabled(readFloat32(afterParam, cabOff + 1));
                                     }
                                 }
 

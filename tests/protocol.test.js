@@ -15,7 +15,8 @@ const {
     PARAM_MARKER,
     AMP_ENABLE_INDEX,
     CAB_TYPE_INDEX,
-    FLOAT_SIZE
+    FLOAT_SIZE,
+    isCabEnabled
 } = require('./helpers/tonex_protocol');
 
 describe('CRC-CCITT Calculation', () => {
@@ -136,12 +137,14 @@ describe('ToneX Binary Marker & Preset Decoding', () => {
 
         const cabOffset = CAB_TYPE_INDEX * FLOAT_SIZE;
         buffer[cabOffset] = 0x88; // Float marker
-        view.setFloat32(cabOffset + 1, 0.0, true); // 0.0 = CAB Disabled
+        view.setFloat32(cabOffset + 1, 2.0, true); // 2.0 = CAB Disabled
 
         const ampVal = readFloat32(buffer, ampOffset + 1);
         const cabVal = readFloat32(buffer, cabOffset + 1);
 
         assert.strictEqual(ampVal > 0.5, true);
-        assert.strictEqual(cabVal > 0.5, false);
+        assert.strictEqual(isCabEnabled(cabVal), false);
+        assert.strictEqual(isCabEnabled(0.0), true); // Tone Model
+        assert.strictEqual(isCabEnabled(1.0), true); // VIR
     });
 });

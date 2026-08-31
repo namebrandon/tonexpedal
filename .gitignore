@@ -7,3 +7,7 @@ firmware/.pio/
 
 # Local Wi-Fi credentials used by the ESP32 firmware
 firmware/include/wifi_secrets.h
+
+# Python development-tool caches
+__pycache__/
+*.pyc
