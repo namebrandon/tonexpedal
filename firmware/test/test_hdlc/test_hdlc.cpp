@@ -1,5 +1,6 @@
 #include <unity.h>
 #include "tonex_hdlc.h"
+#include <cstring>
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -87,6 +88,30 @@ void test_usb_midi_event_packets(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expectedProgram, packets.programChange, 4);
 }
 
+void test_decode_preset_response(void) {
+    std::vector<uint8_t> response(180, 0);
+    const size_t nameMarkerOffset = 5;
+    std::memcpy(response.data() + nameMarkerOffset, ToneXHDLC::NAME_MARKER, sizeof(ToneXHDLC::NAME_MARKER));
+    const char* name = "Captured Plexi";
+    std::memcpy(response.data() + nameMarkerOffset + sizeof(ToneXHDLC::NAME_MARKER), name, std::strlen(name));
+
+    const size_t parameterMarkerOffset = 45;
+    std::memcpy(response.data() + parameterMarkerOffset, ToneXHDLC::PARAM_MARKER, sizeof(ToneXHDLC::PARAM_MARKER));
+    const size_t parameterOffset = parameterMarkerOffset + sizeof(ToneXHDLC::PARAM_MARKER);
+    const float amp = 1.0f;
+    const float cab = 0.0f;
+    response[parameterOffset + 17 * 5] = 0x88;
+    std::memcpy(response.data() + parameterOffset + 17 * 5 + 1, &amp, sizeof(amp));
+    response[parameterOffset + 22 * 5] = 0x88;
+    std::memcpy(response.data() + parameterOffset + 22 * 5 + 1, &cab, sizeof(cab));
+
+    ToneXHDLC::PresetData preset;
+    TEST_ASSERT_TRUE(ToneXHDLC::decodePresetResponse(response.data(), response.size(), preset));
+    TEST_ASSERT_EQUAL_STRING("Captured Plexi", preset.name.c_str());
+    TEST_ASSERT_TRUE(preset.amp);
+    TEST_ASSERT_FALSE(preset.cab);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_crc_ccitt_calculation);
@@ -96,5 +121,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_midi_math_roundtrip);
     RUN_TEST(test_midi_bank_select_commands);
     RUN_TEST(test_usb_midi_event_packets);
+    RUN_TEST(test_decode_preset_response);
     return UNITY_END();
 }

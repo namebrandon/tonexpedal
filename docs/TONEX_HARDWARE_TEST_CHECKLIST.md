@@ -78,6 +78,9 @@ Do not add raw captures to Git. Files named `tonex-diagnostic-*.json` and JSON f
 - Look for `MIDI ready` with the claimed interface and bulk OUT endpoint.
 - Look for `CDC claimed`, followed by `CDC transport ready`, and retain any control-transfer error.
 - From the remotely hosted application, select `00A`, `42B`, `42C`, and `49C` and verify each change on the pedal.
+- Start a bridge preset sync and confirm Hello, State, and all 150 preset responses complete without `sync_failed`.
+- Spot-check names and AMP/CAB flags around presets 0, 127, 128, and 149.
+- Cancel a second sync, confirm the LED and UI return to connected state, then start it again.
 - Unplug and reconnect the pedal, then repeat one preset change without rebooting the ESP32.
 
 If MIDI does not become ready, do not guess endpoint numbers in code. Preserve the descriptor log and update the interface matcher from that evidence.

@@ -26,6 +26,7 @@ public:
     typedef std::function<void(bool connected)> ConnectionCallback;
     typedef std::function<void(uint8_t loaded, uint8_t total)> SyncProgressCallback;
     typedef std::function<void(uint8_t total)> SyncCompleteCallback;
+    typedef std::function<void(const std::string& message)> SyncErrorCallback;
     typedef std::function<void(const ToneXPresetInfo& info)> PresetReceivedCallback;
 
     ToneXUsbHost();
@@ -48,11 +49,12 @@ public:
     void onConnectionChange(ConnectionCallback cb);
     void onSyncProgress(SyncProgressCallback cb);
     void onSyncComplete(SyncCompleteCallback cb);
+    void onSyncError(SyncErrorCallback cb);
     void onPresetReceived(PresetReceivedCallback cb);
 
 private:
     volatile bool _connected;
-    bool _syncing;
+    volatile bool _syncing;
     uint8_t _syncIndex;
     uint32_t _lastSyncStepMs;
 
@@ -74,6 +76,7 @@ private:
     volatile bool _cdcReady;
     StreamBufferHandle_t _cdcRxStream;
     usb_transfer_t* _cdcInTransfer;
+    TaskHandle_t _syncTaskHandle;
 
     static void libraryTask(void* arg);
     static void clientEventCallback(const usb_host_client_event_msg_t* event, void* arg);
@@ -90,11 +93,15 @@ private:
     static void cdcInTransferCallback(usb_transfer_t* transfer);
     static void cdcOutTransferCallback(usb_transfer_t* transfer);
     void resetClaimedInterfaces();
+    static void syncTask(void* arg);
+    void runSync();
+    void failSync(const std::string& message);
 #endif
 
     ConnectionCallback _connCb;
     SyncProgressCallback _progCb;
     SyncCompleteCallback _completeCb;
+    SyncErrorCallback _syncErrorCb;
     PresetReceivedCallback _presetCb;
 
     bool sendCdcFrame(const std::vector<uint8_t>& frame);

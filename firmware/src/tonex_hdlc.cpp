@@ -136,6 +136,36 @@ namespace ToneXHDLC {
         return val;
     }
 
+    bool decodePresetResponse(const uint8_t* data, size_t length, PresetData& preset) {
+        constexpr size_t NAME_LENGTH = 32;
+        constexpr size_t FLOAT_SIZE = 5;
+        constexpr size_t AMP_ENABLE_INDEX = 17;
+        constexpr size_t CAB_TYPE_INDEX = 22;
+
+        preset = PresetData{"", false, false};
+        const int nameMarkerOffset = findMarker(data, length, NAME_MARKER, sizeof(NAME_MARKER));
+        if (nameMarkerOffset < 0) return false;
+
+        const size_t nameOffset = static_cast<size_t>(nameMarkerOffset) + sizeof(NAME_MARKER);
+        if (nameOffset + NAME_LENGTH > length) return false;
+        preset.name = decodePresetName(data + nameOffset, NAME_LENGTH);
+        if (preset.name.empty()) return false;
+
+        const int parameterMarkerOffset = findMarker(data, length, PARAM_MARKER, sizeof(PARAM_MARKER));
+        if (parameterMarkerOffset < 0) return true;
+
+        const size_t parameterOffset = static_cast<size_t>(parameterMarkerOffset) + sizeof(PARAM_MARKER);
+        const size_t ampOffset = parameterOffset + AMP_ENABLE_INDEX * FLOAT_SIZE;
+        const size_t cabOffset = parameterOffset + CAB_TYPE_INDEX * FLOAT_SIZE;
+        if (ampOffset + FLOAT_SIZE <= length && data[ampOffset] == 0x88) {
+            preset.amp = readFloat32(data, ampOffset + 1) > 0.5f;
+        }
+        if (cabOffset + FLOAT_SIZE <= length && data[cabOffset] == 0x88) {
+            preset.cab = readFloat32(data, cabOffset + 1) > 0.5f;
+        }
+        return true;
+    }
+
     BankSlot bankSlotFromPC(uint8_t pc) {
         BankSlot bs;
         bs.bank = pc / 3;

@@ -30,6 +30,14 @@ namespace ToneXHDLC {
     std::string decodePresetName(const uint8_t* nameBytes, size_t length);
     float readFloat32(const uint8_t* bytes, size_t offset);
 
+    struct PresetData {
+        std::string name;
+        bool amp;
+        bool cab;
+    };
+
+    bool decodePresetResponse(const uint8_t* data, size_t length, PresetData& preset);
+
     // --- MIDI Math helpers ---
     struct BankSlot {
         uint8_t bank;

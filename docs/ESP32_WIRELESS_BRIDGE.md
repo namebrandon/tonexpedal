@@ -6,7 +6,7 @@ The goal of this sub-project is to transform the **TONEX Pedal Controller** into
 
 By connecting a small **ESP32-S3** microcontroller board to the TONEX Pedal via USB, the ESP32 acts as a self-contained web server, WebSocket bridge, and USB Host. This enables full remote preset browsing, editing, library sync, and real-time switching from any device on your LAN (e.g. iPad on couch, smartphone on stage, or desktop browser) with **zero latency** and **no host computer required**.
 
-> **Implementation status:** WLAN hosting, bridge discovery, WebSocket messaging, physical USB enumeration, USB-MIDI output, and the CDC bulk transport are implemented. USB-MIDI and CDC descriptor matching still require validation on the pedal. The 150-preset synchronization state machine is the remaining firmware layer.
+> **Implementation status:** the complete firmware path is implemented: WLAN hosting, bridge discovery, WebSocket messaging, physical USB enumeration, USB-MIDI output, CDC bulk transport, and the 150-preset synchronization state machine. USB descriptor matching, MIDI behavior, and CDC responses still require validation on a physical pedal before the bridge should be considered hardware-ready.
 
 ```
 ┌────────────────────────────────┐

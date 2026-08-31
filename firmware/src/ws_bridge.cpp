@@ -2,6 +2,7 @@
 #include "tonex_usb_host.h"
 #include "tonex_hdlc.h"
 #include "config.h"
+#include "led_status.h"
 #include <ArduinoJson.h>
 
 WsBridge Bridge;
@@ -33,6 +34,7 @@ void WsBridge::begin(AsyncWebServer* server) {
 
     // Link ToneX callbacks to WebSocket broadcasts
     ToneX.onConnectionChange([this](bool connected) {
+        StatusLed.setState(connected ? LedState::TONEX_CONNECTED : LedState::WIFI_CONNECTED);
         broadcastStatus(connected);
     });
 
@@ -41,7 +43,13 @@ void WsBridge::begin(AsyncWebServer* server) {
     });
 
     ToneX.onSyncComplete([this](uint8_t total) {
+        StatusLed.setState(LedState::TONEX_CONNECTED);
         broadcastSyncComplete(total);
+    });
+
+    ToneX.onSyncError([this](const std::string& message) {
+        StatusLed.setState(LedState::ERROR_STATE);
+        broadcastError("sync_failed", message.c_str());
     });
 
     ToneX.onPresetReceived([this](const ToneXPresetInfo& info) {
@@ -159,12 +167,15 @@ void WsBridge::processIncomingMessage(const std::string& jsonString) {
         broadcastStatus(ToneX.isConnected(), pc);
 
     } else if (strcmp(action, "sync_start") == 0) {
-        if (!ToneX.startSync()) {
+        if (ToneX.startSync()) {
+            StatusLed.setState(LedState::SYNCING);
+        } else {
             broadcastError("sync_unavailable", "Preset sync is already active or the TONEX is disconnected");
         }
     } else if (strcmp(action, "sync_cancel") == 0) {
         if (ToneX.isSyncing()) {
             ToneX.cancelSync();
+            StatusLed.setState(LedState::TONEX_CONNECTED);
             broadcastSyncCancelled();
         } else {
             broadcastError("sync_not_active", "No preset sync is currently active");
