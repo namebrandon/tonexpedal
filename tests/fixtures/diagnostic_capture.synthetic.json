@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "application": "tonexpedal",
+  "application_version": "1.2.0",
+  "started_at": "2026-08-30T12:00:00.000Z",
+  "environment": {
+    "page_protocol": "http:",
+    "page_host": "localhost:3000",
+    "user_agent": "synthetic-test"
+  },
+  "events": [
+    {
+      "elapsed_ms": 1,
+      "type": "transport_connected",
+      "transport": "webserial"
+    },
+    {
+      "elapsed_ms": 2,
+      "type": "transport_rx_chunk",
+      "transport": "webserial",
+      "bytes_hex": "00 ff 7e 01",
+      "byte_length": 4
+    },
+    {
+      "elapsed_ms": 3,
+      "type": "transport_rx_chunk",
+      "transport": "webserial",
+      "bytes_hex": "7d 5e 02 d6",
+      "byte_length": 4
+    },
+    {
+      "elapsed_ms": 4,
+      "type": "transport_rx_chunk",
+      "transport": "webserial",
+      "bytes_hex": "d5 7e 7e 10 20",
+      "byte_length": 5
+    },
+    {
+      "elapsed_ms": 5,
+      "type": "transport_rx_chunk",
+      "transport": "webserial",
+      "bytes_hex": "30 e9 51 7e",
+      "byte_length": 4
+    },
+    {
+      "elapsed_ms": 6,
+      "type": "sync_complete",
+      "loaded": 2,
+      "successful": 2,
+      "total": 2
+    }
+  ]
+}

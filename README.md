@@ -155,6 +155,8 @@ Run native C++ unit tests (PlatformIO):
 cd firmware && pio test -e native
 ```
 
+For direct-USB hardware validation and opt-in diagnostic capture instructions, see the [TONEX Hardware Test Checklist](docs/TONEX_HARDWARE_TEST_CHECKLIST.md).
+
 ### MIDI Protocol
 
 The TONEX Pedal uses 50 banks × 3 slots (A/B/C) = 150 presets.
