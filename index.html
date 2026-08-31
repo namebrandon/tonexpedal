@@ -880,6 +880,67 @@
             return bank * 3 + slotIndex;
         }
 
+        // --- Hardware control transports ---
+        const localHardwareTransport = {
+            id: 'local',
+
+            isConnected() {
+                return !!midiOutput;
+            },
+
+            sendPreset(bank, slot, channel) {
+                if (!midiOutput) return false;
+
+                const pc = pcFromBankSlot(bank, slot);
+                const midiCh = 0xB0 + channel;
+                midiOutput.send([midiCh, 0, pc > 127 ? 1 : 0]);
+                setTimeout(() => {
+                    midiOutput.send([0xC0 + channel, pc > 127 ? pc - 128 : pc]);
+                }, 30);
+                return true;
+            },
+
+            syncPresets() {
+                return syncLocalUSB();
+            }
+        };
+
+        const bridgeTransport = {
+            id: 'bridge',
+
+            isConnected() {
+                return isBridgeConnected && wsBridge && wsBridge.readyState === WebSocket.OPEN;
+            },
+
+            sendPreset(bank, slot, channel) {
+                if (!this.isConnected()) return false;
+                wsBridge.send(JSON.stringify({
+                    action: 'midi_send',
+                    bank: bank,
+                    slot: slot,
+                    pc: pcFromBankSlot(bank, slot),
+                    channel: channel
+                }));
+                return true;
+            },
+
+            syncPresets() {
+                if (!this.isConnected()) return false;
+                wsBridge.send(JSON.stringify({ action: 'sync_start' }));
+                return true;
+            },
+
+            cancelSync() {
+                if (!this.isConnected()) return false;
+                wsBridge.send(JSON.stringify({ action: 'sync_cancel' }));
+                return true;
+            }
+        };
+
+        function getActiveControlTransport() {
+            return bridgeTransport.isConnected() ? bridgeTransport : localHardwareTransport;
+        }
+
         // --- WebSocket Bridge (ESP32-S3) ---
         function initWebSocketBridge() {
             if (!window.location.protocol.startsWith('http')) return;
@@ -963,31 +1024,7 @@
 
         function bankSelectAndPC(bank, slot) {
             const pc = pcFromBankSlot(bank, slot);
-            const ch = midiChannel;
-
-            if (isBridgeConnected && wsBridge && wsBridge.readyState === WebSocket.OPEN) {
-                wsBridge.send(JSON.stringify({
-                    action: 'midi_send',
-                    bank: bank,
-                    slot: slot,
-                    pc: pc,
-                    channel: ch
-                }));
-            } else if (midiOutput) {
-                if (pc > 127) {
-                    const midiCh = 0xB0 + ch;
-                    midiOutput.send([midiCh, 0, 1]);
-                    setTimeout(() => {
-                        midiOutput.send([0xC0 + ch, pc - 128]);
-                    }, 30);
-                } else {
-                    const midiCh = 0xB0 + ch;
-                    midiOutput.send([midiCh, 0, 0]);
-                    setTimeout(() => {
-                        midiOutput.send([0xC0 + ch, pc]);
-                    }, 30);
-                }
-            }
+            getActiveControlTransport().sendPreset(bank, slot, midiChannel);
 
             activePresetPC = pc;
             activePresetBank = bank;
@@ -1594,18 +1631,26 @@
         }
 
         async function syncUSB() {
+            const activeTransport = getActiveControlTransport();
+            if (activeTransport === bridgeTransport) {
+                const progressEl = document.getElementById('syncProgress');
+                const fillEl = document.getElementById('syncProgressFill');
+                const textEl = document.getElementById('syncProgressText');
+                progressEl.classList.add('active');
+                textEl.textContent = 'Sync...';
+                fillEl.style.width = '0%';
+                activeTransport.syncPresets();
+                return;
+            }
+
+            return activeTransport.syncPresets();
+        }
+
+        async function syncLocalUSB() {
             const syncBtn = document.getElementById('syncUSB');
             const progressEl = document.getElementById('syncProgress');
             const fillEl = document.getElementById('syncProgressFill');
             const textEl = document.getElementById('syncProgressText');
-
-            if (isBridgeConnected && wsBridge && wsBridge.readyState === WebSocket.OPEN) {
-                progressEl.classList.add('active');
-                textEl.textContent = 'Sync...';
-                fillEl.style.width = '0%';
-                wsBridge.send(JSON.stringify({ action: 'sync_start' }));
-                return;
-            }
 
             if (transportIsOpen()) {
                 await transportDisconnect();
