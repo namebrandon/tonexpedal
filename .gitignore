@@ -1,3 +1,6 @@
 # Local hardware diagnostic exports may contain preset names and raw pedal data.
 tonex-diagnostic-*.json
 diagnostics/*.json
+
+# PlatformIO build products
+firmware/.pio/
