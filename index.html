@@ -631,6 +631,7 @@
             <button id="syncUSB" class="sync-btn" title="Sync preset names via USB">🔌 Sync USB</button>
             <button id="exportJSON" class="sync-btn" title="Export preset names to JSON">⬇ JSON</button>
             <button id="importJSON" class="sync-btn" title="Import preset names from JSON">⬆ JSON</button>
+            <button id="exportDiagnostics" class="sync-btn" title="Export diagnostic capture" hidden>🧪 Diagnostics</button>
             <input type="file" id="importFileInput" accept=".json" style="display:none">
             <div id="syncProgress" class="sync-progress">
                 <div class="sync-progress-bar"><div id="syncProgressFill" class="sync-progress-fill"></div></div>
@@ -723,6 +724,7 @@
                 importDone: 'Import termin\u00e9!',
                 importInvalid: 'Fichier JSON invalide ou format incorrect',
                 importCount: ' presets importés',
+                exportDiagnostics: 'Exporter la capture de diagnostic (peut contenir les noms de presets)',
                 bridgeConnected: 'Connecté (Wi-Fi)',
                 bridgeDevice: 'ToneX (Pont Wi-Fi)'
             },
@@ -765,6 +767,7 @@
                 importDone: 'Import done!',
                 importInvalid: 'Invalid JSON file or incorrect format',
                 importCount: ' presets imported',
+                exportDiagnostics: 'Export diagnostic capture (may contain preset names)',
                 bridgeConnected: 'Connected (Wi-Fi)',
                 bridgeDevice: 'ToneX (Wi-Fi Bridge)'
             }
@@ -808,6 +811,7 @@
             document.getElementById('syncUSB').title = t('syncTitle');
             document.getElementById('exportJSON').title = t('exportJSON');
             document.getElementById('importJSON').title = t('importJSON');
+            document.getElementById('exportDiagnostics').title = t('exportDiagnostics');
 
             if (document.getElementById('active-preset').dataset.base !== undefined) {
                 updateActivePresetDisplay();
@@ -828,6 +832,21 @@
         const TOTAL_PRESETS = TOTAL_BANKS * 3;
         const BRIDGE_DISCOVERY_PATH = '/api/bridge';
         const BRIDGE_PROTOCOL_VERSION = 1;
+        const DIAGNOSTIC_SCHEMA_VERSION = 1;
+        const diagnosticsEnabled = new URLSearchParams(window.location.search).get('debug') === '1';
+        const diagnosticStartedAt = performance.now();
+        const diagnosticCapture = diagnosticsEnabled ? {
+            schema_version: DIAGNOSTIC_SCHEMA_VERSION,
+            application: 'tonexpedal',
+            application_version: '1.2.0',
+            started_at: new Date().toISOString(),
+            environment: {
+                page_protocol: window.location.protocol,
+                page_host: window.location.host,
+                user_agent: navigator.userAgent
+            },
+            events: []
+        } : null;
 
         let midiOutput = null;
         let midiChannel = 0;
@@ -843,6 +862,56 @@
         let bridgeReconnectTimer = null;
         let bridgeSyncActive = false;
         let syncProgressHideTimer = null;
+
+        function recordDiagnosticEvent(type, details = {}) {
+            if (!diagnosticCapture) return;
+            diagnosticCapture.events.push({
+                elapsed_ms: Math.round((performance.now() - diagnosticStartedAt) * 1000) / 1000,
+                type: type,
+                ...details
+            });
+        }
+
+        function exportDiagnosticCapture() {
+            if (!diagnosticCapture) return;
+            recordDiagnosticEvent('diagnostic_exported', { event_count: diagnosticCapture.events.length });
+
+            const json = JSON.stringify(diagnosticCapture, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            a.href = url;
+            a.download = 'tonex-diagnostic-' + timestamp + '.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function describeUsbDevice(device) {
+            const configuration = device.configuration;
+            return {
+                vendor_id: device.vendorId,
+                product_id: device.productId,
+                product_name: device.productName || '',
+                manufacturer_name: device.manufacturerName || '',
+                configuration_value: configuration ? configuration.configurationValue : null,
+                interfaces: configuration ? configuration.interfaces.map(iface => ({
+                    interface_number: iface.interfaceNumber,
+                    alternates: iface.alternates.map(alt => ({
+                        alternate_setting: alt.alternateSetting,
+                        interface_class: alt.interfaceClass,
+                        interface_subclass: alt.interfaceSubclass,
+                        interface_protocol: alt.interfaceProtocol,
+                        endpoints: alt.endpoints.map(endpoint => ({
+                            endpoint_number: endpoint.endpointNumber,
+                            direction: endpoint.direction,
+                            type: endpoint.type,
+                            packet_size: endpoint.packetSize
+                        }))
+                    }))
+                })) : []
+            };
+        }
 
         // --- State ---
         let state = loadState();
@@ -905,9 +974,20 @@
 
                 const pc = pcFromBankSlot(bank, slot);
                 const midiCh = 0xB0 + channel;
-                midiOutput.send([midiCh, 0, pc > 127 ? 1 : 0]);
+                const bankSelect = [midiCh, 0, pc > 127 ? 1 : 0];
+                const programChange = [0xC0 + channel, pc > 127 ? pc - 128 : pc];
+                recordDiagnosticEvent('midi_send', {
+                    transport: 'webmidi',
+                    bank: bank,
+                    slot: slot,
+                    pc: pc,
+                    channel: channel,
+                    bank_select: bankSelect,
+                    program_change: programChange
+                });
+                midiOutput.send(bankSelect);
                 setTimeout(() => {
-                    midiOutput.send([0xC0 + channel, pc > 127 ? pc - 128 : pc]);
+                    midiOutput.send(programChange);
                 }, 30);
                 return true;
             },
@@ -926,25 +1006,31 @@
 
             sendPreset(bank, slot, channel) {
                 if (!this.isConnected()) return false;
-                wsBridge.send(JSON.stringify({
+                const message = {
                     action: 'midi_send',
                     bank: bank,
                     slot: slot,
                     pc: pcFromBankSlot(bank, slot),
                     channel: channel
-                }));
+                };
+                recordDiagnosticEvent('bridge_tx', { message: message });
+                wsBridge.send(JSON.stringify(message));
                 return true;
             },
 
             syncPresets() {
                 if (!this.isConnected()) return false;
-                wsBridge.send(JSON.stringify({ action: 'sync_start' }));
+                const message = { action: 'sync_start' };
+                recordDiagnosticEvent('bridge_tx', { message: message });
+                wsBridge.send(JSON.stringify(message));
                 return true;
             },
 
             cancelSync() {
                 if (!this.isConnected()) return false;
-                wsBridge.send(JSON.stringify({ action: 'sync_cancel' }));
+                const message = { action: 'sync_cancel' };
+                recordDiagnosticEvent('bridge_tx', { message: message });
+                wsBridge.send(JSON.stringify(message));
                 return true;
             }
         };
@@ -1026,12 +1112,15 @@
 
                 const identity = await response.json();
                 if (identity.service !== 'tonex-bridge' || identity.protocol_version !== BRIDGE_PROTOCOL_VERSION) {
+                    recordDiagnosticEvent('bridge_discovery_rejected', { identity: identity });
                     return;
                 }
 
                 isBridgeHost = true;
+                recordDiagnosticEvent('bridge_discovered', { identity: identity });
                 connectWebSocketBridge();
             } catch(e) {
+                recordDiagnosticEvent('bridge_discovery_failed', { message: e.message });
                 console.log('[BRIDGE] This host is not a ToneX bridge');
             }
         }
@@ -1059,12 +1148,14 @@
                     isBridgeConnected = true;
                     updateMIDIStatus(isBridgeToneXConnected, true);
                     showBridgeDeviceOption();
+                    recordDiagnosticEvent('bridge_connected');
                     console.log('[BRIDGE] Connected to ToneX Wi-Fi Bridge');
                 };
 
                 wsBridge.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
+                        recordDiagnosticEvent('bridge_rx', { message: data });
                         if (data.event === 'status') {
                             isBridgeToneXConnected = !!data.tonex_connected;
                             updateMIDIStatus(isBridgeToneXConnected, true);
@@ -1103,6 +1194,7 @@
                 };
 
                 wsBridge.onclose = () => {
+                    recordDiagnosticEvent('bridge_disconnected');
                     wsBridge = null;
                     isBridgeConnected = false;
                     isBridgeToneXConnected = false;
@@ -1115,9 +1207,11 @@
                 };
 
                 wsBridge.onerror = () => {
+                    recordDiagnosticEvent('bridge_error');
                     isBridgeConnected = false;
                 };
             } catch(e) {
+                recordDiagnosticEvent('bridge_connection_failed', { message: e.message });
                 console.log('[BRIDGE] WebSocket connection failed');
                 scheduleBridgeReconnect();
             }
@@ -1540,6 +1634,7 @@
 
         // --- USB Serial Sync (HDLC protocol with CRC-CCITT) ---
         let serialPort = null;
+        let serialReader = null;
         let rxBuffer = [];
         let rxResolve = null;
         let usbDevice = null;
@@ -1606,6 +1701,11 @@
             const recvCrc = unstuffed[unstuffed.length - 2] | (unstuffed[unstuffed.length - 1] << 8);
             const calcCrc = crcCCITT(payload);
             if (recvCrc !== calcCrc) {
+                recordDiagnosticEvent('hdlc_crc_error', {
+                    frame_hex: bytesToHex(frameBytes),
+                    received_crc: recvCrc,
+                    calculated_crc: calcCrc
+                });
                 console.log('CRC mismatch:', bytesToHex(new Uint8Array([recvCrc & 0xFF, (recvCrc >> 8) & 0xFF])),
                             '!=', bytesToHex(new Uint8Array([calcCrc & 0xFF, (calcCrc >> 8) & 0xFF])));
                 return null;
@@ -1643,6 +1743,11 @@
                             buf.push(0x7E);
                             const payload = deframe(buf);
                             if (payload) {
+                                recordDiagnosticEvent('hdlc_rx_frame', {
+                                    frame_hex: bytesToHex(buf),
+                                    payload_hex: bytesToHex(payload),
+                                    payload_length: payload.length
+                                });
                                 console.log('RX payload:', bytesToHex(payload));
                                 return payload;
                             }
@@ -1654,6 +1759,10 @@
                     }
                 }
             }
+            recordDiagnosticEvent('hdlc_read_timeout', {
+                timeout_ms: timeoutMs || 3000,
+                partial_frame_hex: bytesToHex(buf)
+            });
             return null;
         }
 
@@ -1663,6 +1772,13 @@
 
         // --- Transport abstraction (Web Serial / WebUSB) ---
         async function transportSend(frame) {
+            const transportName = useUsb ? 'webusb' : 'webserial';
+            recordDiagnosticEvent('transport_tx', {
+                transport: transportName,
+                endpoint: useUsb ? usbEpOut : null,
+                frame_hex: bytesToHex(frame),
+                byte_length: frame.length
+            });
             if (useUsb) {
                 await usbDevice.transferOut(usbEpOut, frame);
             } else {
@@ -1678,25 +1794,45 @@
                     while (!usbReadAbort.signal.aborted) {
                         const result = await usbDevice.transferIn(usbEpIn, 64);
                         if (result.status !== 'ok') break;
-                        const data = new Uint8Array(result.data.buffer);
+                        const data = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+                        recordDiagnosticEvent('transport_rx_chunk', {
+                            transport: 'webusb',
+                            endpoint: usbEpIn,
+                            status: result.status,
+                            bytes_hex: bytesToHex(data),
+                            byte_length: data.length
+                        });
                         for (const byte of data) rxBuffer.push(byte);
                         if (rxResolve) { const r = rxResolve; rxResolve = null; r(); }
                     }
                 } catch(e) {
+                    recordDiagnosticEvent('transport_read_error', { transport: 'webusb', message: e.message });
                     if (e.name !== 'AbortError') console.log('[SYNC] USB read error:', e.message);
                 }
             } else {
                 const reader = serialPort.readable.getReader();
+                serialReader = reader;
                 try {
                     while (true) {
                         const { value, done } = await reader.read();
                         if (done) break;
                         if (value) {
+                            recordDiagnosticEvent('transport_rx_chunk', {
+                                transport: 'webserial',
+                                bytes_hex: bytesToHex(value),
+                                byte_length: value.length
+                            });
                             for (const byte of value) rxBuffer.push(byte);
                             if (rxResolve) { const r = rxResolve; rxResolve = null; r(); }
                         }
                     }
-                } catch(e) { console.log('[SYNC] readLoop error:', e.message); }
+                } catch(e) {
+                    recordDiagnosticEvent('transport_read_error', { transport: 'webserial', message: e.message });
+                    console.log('[SYNC] readLoop error:', e.message);
+                } finally {
+                    reader.releaseLock();
+                    if (serialReader === reader) serialReader = null;
+                }
             }
         }
 
@@ -1706,15 +1842,24 @@
         }
 
         async function transportDisconnect() {
+            const transportName = useUsb ? 'webusb' : 'webserial';
             if (useUsb) {
                 if (usbReadAbort) { usbReadAbort.abort(); usbReadAbort = null; }
                 try { await usbDevice.close(); } catch(e) {}
                 usbDevice = null;
                 useUsb = false;
             } else if (serialPort) {
-                try { await serialPort.close(); } catch(e) {}
+                if (serialReader) {
+                    try { await serialReader.cancel(); } catch(e) {}
+                }
+                try {
+                    await serialPort.close();
+                } catch(e) {
+                    recordDiagnosticEvent('transport_disconnect_error', { transport: 'webserial', message: e.message });
+                }
                 serialPort = null;
             }
+            recordDiagnosticEvent('transport_disconnected', { transport: transportName });
         }
 
         function extractAfterMarker(data, marker) {
@@ -1777,6 +1922,7 @@
             const textEl = document.getElementById('syncProgressText');
 
             if (transportIsOpen()) {
+                recordDiagnosticEvent('sync_cancel_requested', { transport: useUsb ? 'webusb' : 'webserial' });
                 await transportDisconnect();
                 syncBtn.textContent = '\ud83d\udd0c Sync USB';
                 progressEl.classList.remove('active');
@@ -1784,12 +1930,21 @@
             }
 
             // Try Web Serial first, then WebUSB fallback
+            recordDiagnosticEvent('sync_started', { mode: 'local' });
             useUsb = false;
             if ('serial' in navigator) {
                 try {
                     serialPort = await navigator.serial.requestPort();
                     await serialPort.open({ baudRate: 115200 });
+                    const portInfo = serialPort.getInfo ? serialPort.getInfo() : {};
+                    recordDiagnosticEvent('transport_connected', {
+                        transport: 'webserial',
+                        baud_rate: 115200,
+                        usb_vendor_id: portInfo.usbVendorId || null,
+                        usb_product_id: portInfo.usbProductId || null
+                    });
                 } catch(e) {
+                    recordDiagnosticEvent('transport_connection_failed', { transport: 'webserial', message: e.message });
                     console.log('[SYNC] Web Serial failed:', e.message, '- trying WebUSB');
                     serialPort = null;
                 }
@@ -1802,6 +1957,7 @@
                     if (!device) throw new Error('No device selected');
                     await device.open();
                     await device.selectConfiguration(1);
+                    recordDiagnosticEvent('webusb_device', describeUsbDevice(device));
 
                     console.log('[SYNC] Interfaces:', device.configuration.interfaces.length);
                     let cdcCtrlIface = -1;
@@ -1840,7 +1996,15 @@
                     console.log('[SYNC] CDC data interface', cdcDataIface, 'epIn=' + usbEpIn, 'epOut=' + usbEpOut);
                     usbDevice = device;
                     useUsb = true;
+                    recordDiagnosticEvent('transport_connected', {
+                        transport: 'webusb',
+                        endpoint_in: usbEpIn,
+                        endpoint_out: usbEpOut,
+                        control_interface: cdcCtrlIface,
+                        data_interface: cdcDataIface
+                    });
                 } catch(e) {
+                    recordDiagnosticEvent('transport_connection_failed', { transport: 'webusb', message: e.message });
                     alert(t('portError') + e.message);
                     return;
                 }
@@ -1866,8 +2030,10 @@
 
                 textEl.textContent = 'Hello...';
                 console.log('[SYNC] Sending hello...');
+                recordDiagnosticEvent('sync_phase', { phase: 'hello' });
                 await transportSend(buildFrame(HELLO_CMD));
                 const helloResp = await readFrame(3000);
+                recordDiagnosticEvent('sync_phase_result', { phase: 'hello', received: !!helloResp });
                 console.log('[SYNC] Hello response:', helloResp ? bytesToHex(helloResp) : 'null');
 
                 await delay(200);
@@ -1875,8 +2041,10 @@
 
                 textEl.textContent = 'State...';
                 console.log('[SYNC] Sending state...');
+                recordDiagnosticEvent('sync_phase', { phase: 'state' });
                 await transportSend(buildFrame(REQUEST_STATE_CMD));
                 const stateResp = await readFrame(3000);
+                recordDiagnosticEvent('sync_phase_result', { phase: 'state', received: !!stateResp });
                 console.log('[SYNC] State response:', stateResp ? bytesToHex(stateResp) : 'null');
 
                 await delay(200);
@@ -1904,15 +2072,22 @@
                     }
 
                     rxBuffer = [];
+                    recordDiagnosticEvent('sync_preset_requested', {
+                        index: i,
+                        bank: Math.floor(i / 3),
+                        slot: SLOTS[i % 3]
+                    });
                     await transportSend(buildFrame(presetReq));
 
                     const response = await readFrame(3000);
+                    let decodedName = null;
                     if (response) {
                         const afterMarker = extractAfterMarker(response, NAME_MARKER);
                         if (afterMarker && afterMarker.length >= 4) {
                             const nameData = afterMarker.slice(0, 32);
                             const name = decodePresetName(nameData);
                             if (name.length > 0) {
+                                decodedName = name;
                                 const bank = Math.floor(i / 3);
                                 const slot = SLOTS[i % 3];
                                 const key = getPresetKey(bank, slot);
@@ -1942,6 +2117,15 @@
                         console.log('[SYNC] No response for preset', i);
                     }
 
+                    recordDiagnosticEvent('sync_preset_result', {
+                        index: i,
+                        bank: Math.floor(i / 3),
+                        slot: SLOTS[i % 3],
+                        received: !!response,
+                        decoded: decodedName !== null,
+                        name: decodedName
+                    });
+
                     loaded++;
                     await delay(50);
                 }
@@ -1951,7 +2135,9 @@
                 renderGrid();
                 textEl.textContent = t('syncDone') + successCount + '/' + total + t('syncPresetsRead');
                 fillEl.style.width = '100%';
+                recordDiagnosticEvent('sync_complete', { loaded: loaded, successful: successCount, total: total });
             } catch(e) {
+                recordDiagnosticEvent('sync_error', { message: e.message });
                 console.error('Sync error:', e);
                 textEl.textContent = t('syncError') + e.message;
             } finally {
@@ -1962,6 +2148,13 @@
         }
 
         document.getElementById('syncUSB').addEventListener('click', syncUSB);
+
+        const diagnosticsButton = document.getElementById('exportDiagnostics');
+        if (diagnosticsEnabled) {
+            diagnosticsButton.hidden = false;
+            diagnosticsButton.addEventListener('click', exportDiagnosticCapture);
+            recordDiagnosticEvent('diagnostics_started');
+        }
 
         // --- Export / Import JSON ---
         document.getElementById('exportJSON').addEventListener('click', () => {
