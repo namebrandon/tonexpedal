@@ -165,8 +165,11 @@ npm test
 
 Run native C++ unit tests (PlatformIO):
 ```bash
+python3 -m pip install -r requirements-dev.txt
 cd firmware && pio test -e native
 ```
+
+The ESP32 target is pinned to PlatformIO Espressif32 7.0.1 with an explicit N16R8 configuration (16 MB flash and 8 MB octal PSRAM).
 
 For direct-USB hardware validation and opt-in diagnostic capture instructions, see the [TONEX Hardware Test Checklist](docs/TONEX_HARDWARE_TEST_CHECKLIST.md).
 
