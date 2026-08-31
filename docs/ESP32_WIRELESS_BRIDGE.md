@@ -20,7 +20,7 @@ By connecting a small **ESP32-S3** microcontroller board to the TONEX Pedal via 
 │  • Onboard Web Server (serves index.html from LittleFS)     │
 │  • WebSocket Server (handles remote commands in ~1-2ms)     │
 │  • USB Host Controller (talks directly to ToneX hardware)   │
-│  • Wi-Fi AP + Station Mode + mDNS (tonex.local)             │
+│  • Wi-Fi Station Mode + mDNS (tonex.local)                  │
 │  • Status RGB LED (GPIO48)                                  │
 └───────────────────────────────┬─────────────────────────────┘
                                 │ USB Cable (Type-C to Type-B/C)
@@ -77,7 +77,18 @@ The TONEX Pedal is a USB peripheral/device and **does not supply 5V power over i
 * **Platform**: PlatformIO (recommended) or Arduino IDE 2.x with ESP32 board support package (v3.x / ESP-IDF 5.x).
 * **Filesystem**: `LittleFS` partition allocated on the 16MB flash (e.g. 8MB firmware / 8MB LittleFS data).
 
-### 4.2 Firmware Modules
+### 4.2 WLAN Configuration
+
+The bridge normally joins an existing WLAN and receives its address through DHCP. It does not create an access point during normal operation.
+
+1. Copy `firmware/include/wifi_secrets.example.h` to `firmware/include/wifi_secrets.h`.
+2. Set `TONEX_WIFI_SSID` and `TONEX_WIFI_PASS` in the copied file.
+3. Flash the firmware and LittleFS data.
+4. Read the assigned IP address from the serial log, or open `http://tonex.local` from another device on the same WLAN.
+
+The credential file is ignored by Git. Access-point fallback and browser-based provisioning are reserved for a later recovery workflow.
+
+### 4.3 Firmware Modules
 
 ```
 firmware/
@@ -99,7 +110,7 @@ firmware/
 └── platformio.ini           # Build flags, partition table, dependencies
 ```
 
-### 4.3 Essential Firmware Libraries
+### 4.4 Essential Firmware Libraries
 * **`ESPAsyncWebServer`** or **Native `esp_http_server`**: High-performance asynchronous HTTP and WebSocket server.
 * **`EspUsbHost` / `TinyUSB Host` / `esp_usb_host`**: Handles USB Host enumeration of the composite TONEX device (MIDI Class + CDC Serial Class).
 * **`ArduinoJson`** (v7.x): Fast JSON serialization/deserialization for WebSocket messages.

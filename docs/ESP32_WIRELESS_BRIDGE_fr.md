@@ -20,7 +20,7 @@ En connectant une carte microcontrôleur **ESP32-S3** à la pédale TONEX via US
 │  • Serveur Web intégré (sert index.html depuis LittleFS)    │
 │  • Serveur WebSocket (traite les commandes en ~1-2ms)       │
 │  • Contrôleur USB Host (dialogue avec le hardware ToneX)    │
-│  • Wi-Fi AP + Mode Station + mDNS (tonex.local)             │
+│  • Mode station Wi-Fi + mDNS (tonex.local)                  │
 │  • LED RGB d'état (GPIO48)                                  │
 └───────────────────────────────┬─────────────────────────────┘
                                 │ Câble USB (Type-C vers Type-B/C)
@@ -77,7 +77,18 @@ La pédale TONEX est un périphérique USB esclave et **ne fournit pas d'aliment
 * **Plateforme** : PlatformIO (recommandé) ou Arduino IDE 2.x avec support ESP32 (v3.x / ESP-IDF 5.x).
 * **Système de fichiers** : Partition `LittleFS` allouée sur la flash 16 Mo.
 
-### 4.2 Organisation des Fichiers Firmware
+### 4.2 Configuration WLAN
+
+Le pont rejoint normalement un WLAN existant et reçoit son adresse par DHCP. Il ne crée pas de point d'accès pendant le fonctionnement normal.
+
+1. Copier `firmware/include/wifi_secrets.example.h` vers `firmware/include/wifi_secrets.h`.
+2. Renseigner `TONEX_WIFI_SSID` et `TONEX_WIFI_PASS` dans le fichier copié.
+3. Flasher le firmware et les données LittleFS.
+4. Relever l'adresse IP dans le journal série, ou ouvrir `http://tonex.local` depuis un autre appareil connecté au même WLAN.
+
+Le fichier d'identifiants est ignoré par Git. Le point d'accès de secours et le provisionnement par navigateur sont réservés à un futur mode de récupération.
+
+### 4.3 Organisation des Fichiers Firmware
 
 ```
 firmware/

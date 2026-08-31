@@ -1,22 +1,34 @@
 #pragma once
 #include <stdint.h>
 
+#if __has_include("wifi_secrets.h")
+#include "wifi_secrets.h"
+#endif
+
 // --- Hardware Pin Definitions ---
 #define PIN_RGB_LED       48
 #define PIN_USB_DM        19
 #define PIN_USB_DP        20
 
 // --- Network & Server Configuration ---
+#ifndef TONEX_WIFI_SSID
+#define TONEX_WIFI_SSID   ""
+#endif
+
+#ifndef TONEX_WIFI_PASS
+#define TONEX_WIFI_PASS   ""
+#endif
+
 #ifndef TONEX_MDNS_NAME
 #define TONEX_MDNS_NAME   "tonex"
 #endif
 
-#ifndef TONEX_AP_SSID
-#define TONEX_AP_SSID     "ToneX-Remote"
+#ifndef TONEX_WIFI_CONNECT_TIMEOUT_MS
+#define TONEX_WIFI_CONNECT_TIMEOUT_MS 15000
 #endif
 
-#ifndef TONEX_AP_PASS
-#define TONEX_AP_PASS     ""  // Open AP by default for instant connection
+#ifndef TONEX_WIFI_RECONNECT_INTERVAL_MS
+#define TONEX_WIFI_RECONNECT_INTERVAL_MS 10000
 #endif
 
 #define HTTP_PORT         80
