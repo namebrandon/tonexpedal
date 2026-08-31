@@ -151,7 +151,10 @@ void WsBridge::processIncomingMessage(const std::string& jsonString) {
         char slot = slotStr[0];
         uint8_t channel = doc["channel"] | 0;
 
-        ToneX.sendBankSelectAndPC(bank, slot, channel);
+        if (!ToneX.sendBankSelectAndPC(bank, slot, channel)) {
+            broadcastError("midi_unavailable", "The TONEX MIDI interface is not ready");
+            return;
+        }
         uint8_t pc = ToneXHDLC::pcFromBankSlot(bank, slot);
         broadcastStatus(ToneX.isConnected(), pc);
 

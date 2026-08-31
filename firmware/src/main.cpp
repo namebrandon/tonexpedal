@@ -127,9 +127,8 @@ void setup() {
     Serial.println("=================================");
 
     StatusLed.begin();
-    setupWiFi();
-
     ToneX.begin();
+    setupWiFi();
     if (WiFi.status() == WL_CONNECTED && ToneX.isConnected()) {
         StatusLed.setState(LedState::TONEX_CONNECTED);
     }

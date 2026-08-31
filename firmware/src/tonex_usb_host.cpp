@@ -4,6 +4,7 @@
 
 #ifndef NATIVE_TEST
 #include <Arduino.h>
+#include <esp_err.h>
 #else
 #include <chrono>
 #include <thread>
@@ -19,73 +20,222 @@ static void delay(uint32_t ms) {
 ToneXUsbHost ToneX;
 
 ToneXUsbHost::ToneXUsbHost()
-    : _connected(false), _syncing(false), _syncIndex(0), _lastSyncStepMs(0) {}
+    : _connected(false), _syncing(false), _syncIndex(0), _lastSyncStepMs(0)
+#ifndef NATIVE_TEST
+    , _hostInstalled(false), _clientHandle(nullptr), _deviceHandle(nullptr), _libraryTaskHandle(nullptr)
+#endif
+{}
 
 ToneXUsbHost::~ToneXUsbHost() {}
 
 bool ToneXUsbHost::begin() {
-    // In production firmware on ESP32-S3, initializes USB Host CDC & MIDI descriptors
-    _connected = true;
-    if (_connCb) _connCb(_connected);
+#ifdef NATIVE_TEST
+    return false;
+#else
+    usb_host_config_t hostConfig = {};
+    hostConfig.skip_phy_setup = false;
+    hostConfig.intr_flags = ESP_INTR_FLAG_LEVEL1;
+
+    esp_err_t err = usb_host_install(&hostConfig);
+    if (err != ESP_OK) {
+        Serial.printf("[USB] Host installation failed: %s\n", esp_err_to_name(err));
+        return false;
+    }
+    _hostInstalled = true;
+
+    BaseType_t taskCreated = xTaskCreatePinnedToCore(
+        libraryTask,
+        "tonex-usb-lib",
+        4096,
+        this,
+        2,
+        &_libraryTaskHandle,
+        0
+    );
+    if (taskCreated != pdPASS) {
+        Serial.println("[USB] Could not start the host library event task");
+        usb_host_uninstall();
+        _hostInstalled = false;
+        return false;
+    }
+
+    usb_host_client_config_t clientConfig = {};
+    clientConfig.is_synchronous = false;
+    clientConfig.max_num_event_msg = 8;
+    clientConfig.async.client_event_callback = clientEventCallback;
+    clientConfig.async.callback_arg = this;
+
+    err = usb_host_client_register(&clientConfig, &_clientHandle);
+    if (err != ESP_OK) {
+        Serial.printf("[USB] Client registration failed: %s\n", esp_err_to_name(err));
+        vTaskDelete(_libraryTaskHandle);
+        _libraryTaskHandle = nullptr;
+        usb_host_uninstall();
+        _hostInstalled = false;
+        return false;
+    }
+
+    Serial.println("[USB] Host ready; waiting for a TONEX device (VID 0x1963)");
     return true;
+#endif
 }
 
 void ToneXUsbHost::loop() {
-    if (!_syncing) return;
-
-    // Non-blocking sync state machine step
-    uint32_t now = millis();
-    if (now - _lastSyncStepMs < 40) return; // 40ms interval between preset queries
-    _lastSyncStepMs = now;
-
-    if (_syncIndex < TONEX_TOTAL_PRESETS) {
-        ToneXHDLC::BankSlot bs = ToneXHDLC::bankSlotFromPC(_syncIndex);
-        std::vector<uint8_t> req = ToneXHDLC::createPresetRequest(_syncIndex);
-        std::vector<uint8_t> frame = ToneXHDLC::buildFrame(req.data(), req.size());
-        sendCdcFrame(frame);
-
-        // Notify progress
-        if (_progCb) _progCb(_syncIndex + 1, TONEX_TOTAL_PRESETS);
-
-        // Process response (in real hardware this reads from CDC endpoint)
-        ToneXPresetInfo info;
-        info.bank = bs.bank;
-        info.slot = bs.slot;
-        info.name = "Preset " + std::to_string(bs.bank) + bs.slot;
-        info.amp = true;
-        info.cab = true;
-
-        if (_presetCb) _presetCb(info);
-
-        _syncIndex++;
-        if (_syncIndex >= TONEX_TOTAL_PRESETS) {
-            _syncing = false;
-            _syncIndex = 0;
-            if (_completeCb) _completeCb(TONEX_TOTAL_PRESETS);
+#ifndef NATIVE_TEST
+    if (_clientHandle) {
+        const esp_err_t err = usb_host_client_handle_events(_clientHandle, 0);
+        if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
+            Serial.printf("[USB] Client event error: %s\n", esp_err_to_name(err));
         }
     }
+#endif
+
 }
+
+#ifndef NATIVE_TEST
+void ToneXUsbHost::libraryTask(void* arg) {
+    ToneXUsbHost* host = static_cast<ToneXUsbHost*>(arg);
+    while (host->_hostInstalled) {
+        uint32_t eventFlags = 0;
+        const esp_err_t err = usb_host_lib_handle_events(portMAX_DELAY, &eventFlags);
+        if (err != ESP_OK) {
+            Serial.printf("[USB] Library event error: %s\n", esp_err_to_name(err));
+        }
+    }
+    vTaskDelete(nullptr);
+}
+
+void ToneXUsbHost::clientEventCallback(const usb_host_client_event_msg_t* event, void* arg) {
+    ToneXUsbHost* host = static_cast<ToneXUsbHost*>(arg);
+    if (event->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
+        host->handleNewDevice(event->new_dev.address);
+    } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
+        host->handleDeviceGone(event->dev_gone.dev_hdl);
+    }
+}
+
+void ToneXUsbHost::handleNewDevice(uint8_t address) {
+    if (_deviceHandle) {
+        Serial.printf("[USB] Ignoring device at address %u while the TONEX is open\n", address);
+        return;
+    }
+
+    usb_device_handle_t device = nullptr;
+    esp_err_t err = usb_host_device_open(_clientHandle, address, &device);
+    if (err != ESP_OK) {
+        Serial.printf("[USB] Could not open address %u: %s\n", address, esp_err_to_name(err));
+        return;
+    }
+
+    const usb_device_desc_t* descriptor = nullptr;
+    err = usb_host_get_device_descriptor(device, &descriptor);
+    if (err != ESP_OK || !descriptor) {
+        Serial.printf("[USB] Could not read the device descriptor: %s\n", esp_err_to_name(err));
+        usb_host_device_close(_clientHandle, device);
+        return;
+    }
+
+    Serial.printf(
+        "[USB] Device address=%u VID=0x%04X PID=0x%04X class=0x%02X\n",
+        address,
+        descriptor->idVendor,
+        descriptor->idProduct,
+        descriptor->bDeviceClass
+    );
+
+    const usb_config_desc_t* configuration = nullptr;
+    if (usb_host_get_active_config_descriptor(device, &configuration) == ESP_OK && configuration) {
+        logConfiguration(configuration);
+    }
+
+    if (descriptor->idVendor != TONEX_USB_VID) {
+        Serial.println("[USB] Device is not an IK Multimedia TONEX; closing it");
+        usb_host_device_close(_clientHandle, device);
+        return;
+    }
+
+    _deviceHandle = device;
+    _connected = true;
+    Serial.printf("[USB] TONEX connected at address %u\n", address);
+    if (_connCb) _connCb(true);
+}
+
+void ToneXUsbHost::handleDeviceGone(usb_device_handle_t device) {
+    if (device != _deviceHandle) return;
+
+    _syncing = false;
+    _syncIndex = 0;
+    _connected = false;
+    _deviceHandle = nullptr;
+    usb_host_device_close(_clientHandle, device);
+    Serial.println("[USB] TONEX disconnected");
+    if (_connCb) _connCb(false);
+}
+
+void ToneXUsbHost::logConfiguration(const usb_config_desc_t* config) const {
+    Serial.printf(
+        "[USB] Configuration value=%u interfaces=%u total_length=%u max_power_ma=%u\n",
+        config->bConfigurationValue,
+        config->bNumInterfaces,
+        config->wTotalLength,
+        config->bMaxPower * 2
+    );
+
+    const uint8_t* bytes = config->val;
+    uint16_t offset = config->bLength;
+    int currentInterface = -1;
+    while (offset + 2 <= config->wTotalLength) {
+        const usb_standard_desc_t* standard = reinterpret_cast<const usb_standard_desc_t*>(bytes + offset);
+        if (standard->bLength < 2 || offset + standard->bLength > config->wTotalLength) break;
+
+        if (standard->bDescriptorType == USB_B_DESCRIPTOR_TYPE_INTERFACE && standard->bLength >= sizeof(usb_intf_desc_t)) {
+            const usb_intf_desc_t* interfaceDescriptor = reinterpret_cast<const usb_intf_desc_t*>(standard);
+            currentInterface = interfaceDescriptor->bInterfaceNumber;
+            Serial.printf(
+                "[USB] Interface number=%u alt=%u class=0x%02X subclass=0x%02X protocol=0x%02X endpoints=%u\n",
+                interfaceDescriptor->bInterfaceNumber,
+                interfaceDescriptor->bAlternateSetting,
+                interfaceDescriptor->bInterfaceClass,
+                interfaceDescriptor->bInterfaceSubClass,
+                interfaceDescriptor->bInterfaceProtocol,
+                interfaceDescriptor->bNumEndpoints
+            );
+        } else if (standard->bDescriptorType == USB_B_DESCRIPTOR_TYPE_ENDPOINT && standard->bLength >= sizeof(usb_ep_desc_t)) {
+            const usb_ep_desc_t* endpoint = reinterpret_cast<const usb_ep_desc_t*>(standard);
+            Serial.printf(
+                "[USB] Endpoint interface=%d address=0x%02X attributes=0x%02X max_packet=%u interval=%u\n",
+                currentInterface,
+                endpoint->bEndpointAddress,
+                endpoint->bmAttributes,
+                endpoint->wMaxPacketSize,
+                endpoint->bInterval
+            );
+        }
+
+        offset += standard->bLength;
+    }
+}
+#endif
 
 bool ToneXUsbHost::isConnected() const {
     return _connected;
 }
 
 bool ToneXUsbHost::sendBankSelectAndPC(uint8_t bank, char slot, uint8_t channel) {
-    ToneXHDLC::MidiMessage msg = ToneXHDLC::getMidiBankSelectAndPC(bank, slot, channel);
-    // In hardware, pushes raw MIDI USB packets to MIDI out endpoint
-    return true;
+    (void)bank;
+    (void)slot;
+    (void)channel;
+#ifndef NATIVE_TEST
+    Serial.println("[USB] MIDI output is unavailable until the MIDI streaming interface is claimed");
+#endif
+    return false;
 }
 
 bool ToneXUsbHost::startSync() {
-    if (_syncing || !_connected) return false;
-    _syncing = true;
-    _syncIndex = 0;
-    _lastSyncStepMs = millis();
-
-    // Send Hello and Request State commands
-    std::vector<uint8_t> hello = ToneXHDLC::buildFrame(ToneXHDLC::HELLO_CMD, sizeof(ToneXHDLC::HELLO_CMD));
-    sendCdcFrame(hello);
-    return true;
+#ifndef NATIVE_TEST
+    Serial.println("[USB] CDC preset sync is unavailable until the CDC interfaces are claimed");
+#endif
+    return false;
 }
 
 void ToneXUsbHost::cancelSync() {
@@ -114,11 +264,11 @@ void ToneXUsbHost::onPresetReceived(PresetReceivedCallback cb) {
 }
 
 bool ToneXUsbHost::sendCdcFrame(const std::vector<uint8_t>& frame) {
-    // In production firmware, writes to CDC bulk OUT endpoint
-    return true;
+    (void)frame;
+    return false;
 }
 
 std::vector<uint8_t> ToneXUsbHost::readCdcFrame(uint32_t timeoutMs) {
-    // In production firmware, reads from CDC bulk IN endpoint
+    (void)timeoutMs;
     return {};
 }

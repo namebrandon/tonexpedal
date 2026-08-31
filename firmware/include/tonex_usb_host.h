@@ -6,6 +6,12 @@
 #include <vector>
 #include <string>
 
+#ifndef NATIVE_TEST
+#include <usb/usb_host.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#endif
+
 struct ToneXPresetInfo {
     uint8_t bank;
     char slot;
@@ -44,10 +50,23 @@ public:
     void onPresetReceived(PresetReceivedCallback cb);
 
 private:
-    bool _connected;
+    volatile bool _connected;
     bool _syncing;
     uint8_t _syncIndex;
     uint32_t _lastSyncStepMs;
+
+#ifndef NATIVE_TEST
+    bool _hostInstalled;
+    usb_host_client_handle_t _clientHandle;
+    usb_device_handle_t _deviceHandle;
+    TaskHandle_t _libraryTaskHandle;
+
+    static void libraryTask(void* arg);
+    static void clientEventCallback(const usb_host_client_event_msg_t* event, void* arg);
+    void handleNewDevice(uint8_t address);
+    void handleDeviceGone(usb_device_handle_t device);
+    void logConfiguration(const usb_config_desc_t* config) const;
+#endif
 
     ConnectionCallback _connCb;
     SyncProgressCallback _progCb;
