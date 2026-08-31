@@ -62,6 +62,7 @@ private:
     bool _hostInstalled;
     usb_host_client_handle_t _clientHandle;
     usb_device_handle_t _deviceHandle;
+    usb_device_handle_t _goneDeviceHandle;
     TaskHandle_t _libraryTaskHandle;
     uint8_t _midiInterfaceNumber;
     uint8_t _midiAlternateSetting;
@@ -77,6 +78,8 @@ private:
     StreamBufferHandle_t _cdcRxStream;
     usb_transfer_t* _cdcInTransfer;
     TaskHandle_t _syncTaskHandle;
+    volatile uint16_t _midiTransfersInFlight;
+    volatile uint16_t _cdcOutTransfersInFlight;
 
     static void libraryTask(void* arg);
     static void clientEventCallback(const usb_host_client_event_msg_t* event, void* arg);
@@ -93,6 +96,7 @@ private:
     static void cdcInTransferCallback(usb_transfer_t* transfer);
     static void cdcOutTransferCallback(usb_transfer_t* transfer);
     void resetClaimedInterfaces();
+    void cleanupGoneDevice();
     static void syncTask(void* arg);
     void runSync();
     void failSync(const std::string& message);

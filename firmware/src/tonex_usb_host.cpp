@@ -23,12 +23,13 @@ ToneXUsbHost ToneX;
 ToneXUsbHost::ToneXUsbHost()
     : _connected(false), _syncing(false), _syncIndex(0), _lastSyncStepMs(0)
 #ifndef NATIVE_TEST
-    , _hostInstalled(false), _clientHandle(nullptr), _deviceHandle(nullptr), _libraryTaskHandle(nullptr),
+    , _hostInstalled(false), _clientHandle(nullptr), _deviceHandle(nullptr), _goneDeviceHandle(nullptr), _libraryTaskHandle(nullptr),
       _midiInterfaceNumber(0xFF), _midiAlternateSetting(0), _midiEndpointOut(0),
       _cdcControlInterfaceNumber(0xFF), _cdcControlAlternateSetting(0),
       _cdcDataInterfaceNumber(0xFF), _cdcDataAlternateSetting(0),
       _cdcEndpointIn(0), _cdcEndpointOut(0), _cdcEndpointInMaxPacket(0),
-      _cdcReady(false), _cdcRxStream(nullptr), _cdcInTransfer(nullptr), _syncTaskHandle(nullptr)
+      _cdcReady(false), _cdcRxStream(nullptr), _cdcInTransfer(nullptr), _syncTaskHandle(nullptr),
+      _midiTransfersInFlight(0), _cdcOutTransfersInFlight(0)
 #endif
 {}
 
@@ -106,6 +107,7 @@ void ToneXUsbHost::loop() {
             Serial.printf("[USB] Client event error: %s\n", esp_err_to_name(err));
         }
     }
+    cleanupGoneDevice();
 #endif
 
 }
@@ -188,23 +190,7 @@ void ToneXUsbHost::handleDeviceGone(usb_device_handle_t device) {
     _syncIndex = 0;
     _connected = false;
     _cdcReady = false;
-    _deviceHandle = nullptr;
-
-    if (_midiInterfaceNumber != 0xFF) {
-        usb_host_interface_release(_clientHandle, device, _midiInterfaceNumber);
-    }
-    if (_cdcDataInterfaceNumber != 0xFF && _cdcDataInterfaceNumber != _midiInterfaceNumber) {
-        usb_host_interface_release(_clientHandle, device, _cdcDataInterfaceNumber);
-    }
-    if (_cdcControlInterfaceNumber != 0xFF &&
-        _cdcControlInterfaceNumber != _cdcDataInterfaceNumber &&
-        _cdcControlInterfaceNumber != _midiInterfaceNumber) {
-        usb_host_interface_release(_clientHandle, device, _cdcControlInterfaceNumber);
-    }
-
-    usb_host_device_close(_clientHandle, device);
-    resetClaimedInterfaces();
-    if (_cdcRxStream) xStreamBufferReset(_cdcRxStream);
+    _goneDeviceHandle = device;
     Serial.println("[USB] TONEX disconnected");
     if (_connCb) _connCb(false);
     if (syncWasActive && _syncErrorCb) _syncErrorCb("The TONEX disconnected during preset synchronization");
@@ -313,6 +299,8 @@ bool ToneXUsbHost::claimMidiInterface(const usb_config_desc_t* config) {
 }
 
 bool ToneXUsbHost::submitMidiPacket(const uint8_t packet[4]) {
+    if (!_connected || !_deviceHandle || !_midiEndpointOut) return false;
+
     usb_transfer_t* transfer = nullptr;
     esp_err_t err = usb_host_transfer_alloc(4, 0, &transfer);
     if (err != ESP_OK || !transfer) {
@@ -327,8 +315,10 @@ bool ToneXUsbHost::submitMidiPacket(const uint8_t packet[4]) {
     transfer->callback = midiTransferCallback;
     transfer->context = this;
 
+    _midiTransfersInFlight++;
     err = usb_host_transfer_submit(transfer);
     if (err != ESP_OK) {
+        _midiTransfersInFlight--;
         Serial.printf("[USB] Could not submit MIDI transfer: %s\n", esp_err_to_name(err));
         usb_host_transfer_free(transfer);
         return false;
@@ -337,6 +327,7 @@ bool ToneXUsbHost::submitMidiPacket(const uint8_t packet[4]) {
 }
 
 void ToneXUsbHost::midiTransferCallback(usb_transfer_t* transfer) {
+    ToneXUsbHost* host = static_cast<ToneXUsbHost*>(transfer->context);
     if (transfer->status != USB_TRANSFER_STATUS_COMPLETED || transfer->actual_num_bytes != transfer->num_bytes) {
         Serial.printf(
             "[USB] MIDI transfer failed: status=%d bytes=%d/%d\n",
@@ -345,6 +336,7 @@ void ToneXUsbHost::midiTransferCallback(usb_transfer_t* transfer) {
             transfer->num_bytes
         );
     }
+    if (host->_midiTransfersInFlight > 0) host->_midiTransfersInFlight--;
     usb_host_transfer_free(transfer);
 }
 
@@ -508,7 +500,7 @@ void ToneXUsbHost::cdcControlTransferCallback(usb_transfer_t* transfer) {
     }
     usb_host_transfer_free(transfer);
 
-    if (!completed || !host->_deviceHandle) return;
+    if (!completed || !host->_connected || !host->_deviceHandle) return;
     if (request == 0x20) {
         host->submitCdcControlRequest(0x22); // SET_CONTROL_LINE_STATE
     } else if (request == 0x22) {
@@ -574,6 +566,7 @@ void ToneXUsbHost::cdcInTransferCallback(usb_transfer_t* transfer) {
 }
 
 void ToneXUsbHost::cdcOutTransferCallback(usb_transfer_t* transfer) {
+    ToneXUsbHost* host = static_cast<ToneXUsbHost*>(transfer->context);
     if (transfer->status != USB_TRANSFER_STATUS_COMPLETED || transfer->actual_num_bytes != transfer->num_bytes) {
         Serial.printf(
             "[USB] CDC OUT transfer failed: status=%d bytes=%d/%d\n",
@@ -582,6 +575,7 @@ void ToneXUsbHost::cdcOutTransferCallback(usb_transfer_t* transfer) {
             transfer->num_bytes
         );
     }
+    if (host->_cdcOutTransfersInFlight > 0) host->_cdcOutTransfersInFlight--;
     usb_host_transfer_free(transfer);
 }
 
@@ -597,6 +591,48 @@ void ToneXUsbHost::resetClaimedInterfaces() {
     _cdcEndpointOut = 0;
     _cdcEndpointInMaxPacket = 0;
     _cdcReady = false;
+}
+
+void ToneXUsbHost::cleanupGoneDevice() {
+    if (!_goneDeviceHandle || _cdcInTransfer || _midiTransfersInFlight > 0 || _cdcOutTransfersInFlight > 0) return;
+
+    const usb_device_handle_t device = _goneDeviceHandle;
+    const auto releaseInterface = [this, device](uint8_t interfaceNumber, const char* label) {
+        if (interfaceNumber == 0xFF) return true;
+        const esp_err_t err = usb_host_interface_release(_clientHandle, device, interfaceNumber);
+        if (err != ESP_OK) {
+            Serial.printf("[USB] Waiting to release %s interface %u: %s\n", label, interfaceNumber, esp_err_to_name(err));
+            return false;
+        }
+        return true;
+    };
+
+    if (!releaseInterface(_midiInterfaceNumber, "MIDI")) return;
+    const uint8_t releasedMidi = _midiInterfaceNumber;
+    _midiInterfaceNumber = 0xFF;
+
+    if (_cdcDataInterfaceNumber != releasedMidi) {
+        if (!releaseInterface(_cdcDataInterfaceNumber, "CDC data")) return;
+    }
+    const uint8_t releasedData = _cdcDataInterfaceNumber;
+    _cdcDataInterfaceNumber = 0xFF;
+
+    if (_cdcControlInterfaceNumber != releasedMidi && _cdcControlInterfaceNumber != releasedData) {
+        if (!releaseInterface(_cdcControlInterfaceNumber, "CDC control")) return;
+    }
+    _cdcControlInterfaceNumber = 0xFF;
+
+    const esp_err_t closeResult = usb_host_device_close(_clientHandle, device);
+    if (closeResult != ESP_OK) {
+        Serial.printf("[USB] Waiting to close disconnected TONEX: %s\n", esp_err_to_name(closeResult));
+        return;
+    }
+
+    _deviceHandle = nullptr;
+    _goneDeviceHandle = nullptr;
+    resetClaimedInterfaces();
+    if (_cdcRxStream) xStreamBufferReset(_cdcRxStream);
+    Serial.println("[USB] Disconnected TONEX resources released");
 }
 
 void ToneXUsbHost::syncTask(void* arg) {
@@ -779,8 +815,10 @@ bool ToneXUsbHost::sendCdcFrame(const std::vector<uint8_t>& frame) {
     transfer->callback = cdcOutTransferCallback;
     transfer->context = this;
 
+    _cdcOutTransfersInFlight++;
     err = usb_host_transfer_submit(transfer);
     if (err != ESP_OK) {
+        _cdcOutTransfersInFlight--;
         Serial.printf("[USB] Could not submit CDC OUT transfer: %s\n", esp_err_to_name(err));
         usb_host_transfer_free(transfer);
         return false;
