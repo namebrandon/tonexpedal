@@ -1,5 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
     TOTAL_BANKS,
     SLOTS,
@@ -8,6 +10,13 @@ const {
     pcFromBankSlot,
     getMidiBankSelectAndPC
 } = require('./helpers/tonex_protocol');
+
+function loadProductionBankSlotFromPC(relativePath) {
+    const source = fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
+    const match = source.match(/function bankSlotFromPC\(pc\) \{[\s\S]*?\n        \}/);
+    assert.ok(match, `bankSlotFromPC was not found in ${relativePath}`);
+    return new Function('SLOTS', `return (${match[0]});`)(SLOTS);
+}
 
 describe('MIDI Bank / Slot and Program Change Math', () => {
     it('calculates correct PC for first bank presets', () => {
@@ -26,6 +35,19 @@ describe('MIDI Bank / Slot and Program Change Math', () => {
             const { bank, slot } = bankSlotFromPC(pc);
             const calculatedPc = pcFromBankSlot(bank, slot);
             assert.strictEqual(calculatedPc, pc, `Failed roundtrip at PC ${pc}`);
+        }
+    });
+
+    it('keeps both deployed frontends correct across all 150 presets', () => {
+        for (const frontend of ['index.html', 'firmware/data/index.html']) {
+            const productionBankSlotFromPC = loadProductionBankSlotFromPC(frontend);
+            for (let pc = 0; pc < TOTAL_PRESETS; pc++) {
+                assert.deepStrictEqual(
+                    productionBankSlotFromPC(pc),
+                    bankSlotFromPC(pc),
+                    `${frontend} diverged at PC ${pc}`
+                );
+            }
         }
     });
 

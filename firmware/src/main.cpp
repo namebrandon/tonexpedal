@@ -38,6 +38,11 @@ void setupWebServer() {
         Serial.println("[FS] LittleFS mounted successfully");
     }
 
+    // Let the shared web application positively identify an ESP32 bridge host.
+    server.on("/api/bridge", HTTP_GET, [](AsyncWebServerRequest* request) {
+        request->send(200, "application/json", "{\"service\":\"tonex-bridge\",\"protocol_version\":1}");
+    });
+
     // Serve web application from LittleFS
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 

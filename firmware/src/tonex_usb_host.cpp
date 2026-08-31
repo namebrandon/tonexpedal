@@ -58,9 +58,11 @@ void ToneXUsbHost::loop() {
         if (_presetCb) _presetCb(info);
 
         _syncIndex++;
-    } else {
-        _syncing = false;
-        _syncIndex = 0;
+        if (_syncIndex >= TONEX_TOTAL_PRESETS) {
+            _syncing = false;
+            _syncIndex = 0;
+            if (_completeCb) _completeCb(TONEX_TOTAL_PRESETS);
+        }
     }
 }
 
@@ -75,7 +77,7 @@ bool ToneXUsbHost::sendBankSelectAndPC(uint8_t bank, char slot, uint8_t channel)
 }
 
 bool ToneXUsbHost::startSync() {
-    if (_syncing) return false;
+    if (_syncing || !_connected) return false;
     _syncing = true;
     _syncIndex = 0;
     _lastSyncStepMs = millis();
@@ -101,6 +103,10 @@ void ToneXUsbHost::onConnectionChange(ConnectionCallback cb) {
 
 void ToneXUsbHost::onSyncProgress(SyncProgressCallback cb) {
     _progCb = cb;
+}
+
+void ToneXUsbHost::onSyncComplete(SyncCompleteCallback cb) {
+    _completeCb = cb;
 }
 
 void ToneXUsbHost::onPresetReceived(PresetReceivedCallback cb) {

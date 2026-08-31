@@ -40,6 +40,10 @@ void WsBridge::begin(AsyncWebServer* server) {
         broadcastSyncProgress(loaded, total);
     });
 
+    ToneX.onSyncComplete([this](uint8_t total) {
+        broadcastSyncComplete(total);
+    });
+
     ToneX.onPresetReceived([this](const ToneXPresetInfo& info) {
         broadcastPreset(info.bank, info.slot, info.name, info.amp, info.cab);
     });
@@ -69,6 +73,45 @@ void WsBridge::broadcastSyncProgress(uint8_t loaded, uint8_t total) {
     doc["loaded"] = loaded;
     doc["total"] = total;
     doc["percent"] = (loaded * 100) / total;
+
+    std::string out;
+    serializeJson(doc, out);
+
+#ifndef NATIVE_TEST
+    _ws.textAll(out.c_str());
+#endif
+}
+
+void WsBridge::broadcastSyncComplete(uint8_t total) {
+    JsonDocument doc;
+    doc["event"] = "sync_complete";
+    doc["total"] = total;
+
+    std::string out;
+    serializeJson(doc, out);
+
+#ifndef NATIVE_TEST
+    _ws.textAll(out.c_str());
+#endif
+}
+
+void WsBridge::broadcastSyncCancelled() {
+    JsonDocument doc;
+    doc["event"] = "sync_cancelled";
+
+    std::string out;
+    serializeJson(doc, out);
+
+#ifndef NATIVE_TEST
+    _ws.textAll(out.c_str());
+#endif
+}
+
+void WsBridge::broadcastError(const char* code, const char* message) {
+    JsonDocument doc;
+    doc["event"] = "error";
+    doc["code"] = code;
+    doc["message"] = message;
 
     std::string out;
     serializeJson(doc, out);
@@ -113,8 +156,17 @@ void WsBridge::processIncomingMessage(const std::string& jsonString) {
         broadcastStatus(ToneX.isConnected(), pc);
 
     } else if (strcmp(action, "sync_start") == 0) {
-        ToneX.startSync();
+        if (!ToneX.startSync()) {
+            broadcastError("sync_unavailable", "Preset sync is already active or the TONEX is disconnected");
+        }
     } else if (strcmp(action, "sync_cancel") == 0) {
-        ToneX.cancelSync();
+        if (ToneX.isSyncing()) {
+            ToneX.cancelSync();
+            broadcastSyncCancelled();
+        } else {
+            broadcastError("sync_not_active", "No preset sync is currently active");
+        }
+    } else {
+        broadcastError("unknown_action", "Unknown bridge action");
     }
 }

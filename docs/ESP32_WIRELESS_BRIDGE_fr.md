@@ -105,6 +105,15 @@ firmware/
 
 L'iPad et l'ESP32 communiquent en temps réel via une connexion WebSocket persistante sur `ws://tonex.local/ws`.
 
+Avant d'ouvrir le socket, le frontend partagé appelle `GET /api/bridge`. Le pont s'identifie avec :
+```json
+{
+  "service": "tonex-bridge",
+  "protocol_version": 1
+}
+```
+Cela évite qu'une copie servie par un serveur HTTP ordinaire tente continuellement d'ouvrir un WebSocket.
+
 ### 5.1 Client -> ESP32 (Commandes)
 
 #### 1. Bank Select MIDI & Program Change
@@ -124,6 +133,14 @@ Envoyé lors du clic sur "Sync USB" :
 ```json
 {
   "action": "sync_start"
+}
+```
+
+#### 3. Annuler la Synchronisation
+Envoyé lors d'un second clic sur le bouton pendant une synchronisation active :
+```json
+{
+  "action": "sync_cancel"
 }
 ```
 
@@ -155,24 +172,34 @@ Diffusé pendant la lecture des 150 presets :
 ```
 
 #### 3. Données des Presets
-Envoie les presets découverts pour peupler la bibliothèque :
+Envoie chaque preset découvert pour peupler la bibliothèque :
 ```json
 {
-  "event": "preset_data",
-  "presets": {
-    "0_A": { "name": "Clean Crunch", "amp": true, "cab": true },
-    "0_B": { "name": "Heavy Lead", "amp": true, "cab": false }
-  }
+  "event": "preset_update",
+  "bank": 0,
+  "slot": "A",
+  "name": "Clean Crunch",
+  "amp": true,
+  "cab": true
 }
+```
+
+#### 4. Fin, Annulation et Erreurs
+Le pont émet `sync_complete` après tous les presets, `sync_cancelled` après une annulation, ou un événement `error` structuré lorsqu'une commande échoue :
+```json
+{ "event": "sync_complete", "total": 150 }
+{ "event": "sync_cancelled" }
+{ "event": "error", "code": "sync_unavailable", "message": "Preset sync is already active or the TONEX is disconnected" }
 ```
 
 ---
 
 ## 6. Intégration Frontend (`index.html`)
 
-L'application [`index.html`](file:///Users/brandon/Documents/repos/tonexpedal/index.html) intègre une couche d'abstraction qui détecte automatiquement son environnement :
-- **Servie depuis l'ESP32** : Elle utilise le pont WebSocket pour piloter la ToneX sans fil.
-- **Ouverte localement (`file:///` ou PC local)** : Elle utilise les API Web MIDI et Web Serial natives sans aucune régression.
+L'application `index.html` utilise des adaptateurs explicites pour le matériel local et le WebSocket. Elle n'active le transport du pont qu'après identification positive du serveur via `GET /api/bridge`.
+
+- **Servie depuis l'ESP32** : elle utilise le pont WebSocket pour piloter la TONEX sans fil.
+- **Ouverte localement ou servie par un autre serveur** : elle conserve les API Web MIDI et Web Serial/WebUSB natives.
 
 ---
 

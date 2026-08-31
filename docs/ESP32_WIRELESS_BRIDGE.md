@@ -113,6 +113,15 @@ firmware/
 
 The iPad and ESP32 communicate in real-time over a persistent WebSocket connection at `ws://tonex.local/ws`.
 
+Before opening the socket, the shared frontend requests `GET /api/bridge`. A bridge identifies itself with:
+```json
+{
+  "service": "tonex-bridge",
+  "protocol_version": 1
+}
+```
+This prevents ordinary HTTP-hosted copies of the application from repeatedly probing for a WebSocket bridge.
+
 ### 5.1 Client -> ESP32 (Commands)
 
 #### 1. MIDI Bank Select & Program Change
@@ -135,16 +144,11 @@ Sent when clicking "Sync USB" on the iPad:
 }
 ```
 
-#### 3. Save Preset Edit
-Sent when editing a preset name or AMP/CAB flag on iPad:
+#### 3. Cancel Preset Sync
+Sent when clicking the sync button while a bridge sync is active:
 ```json
 {
-  "action": "save_preset",
-  "bank": 0,
-  "slot": "A",
-  "name": "Custom Lead",
-  "amp": true,
-  "cab": true
+  "action": "sync_cancel"
 }
 ```
 
@@ -175,38 +179,42 @@ Broadcasted during preset dump (150 presets):
 }
 ```
 
-#### 3. Sync Batch / Preset Data
-Sends discovered presets to populate the library:
+#### 3. Preset Data
+Sends each discovered preset to populate the library:
 ```json
 {
-  "event": "preset_data",
-  "presets": {
-    "0_A": { "name": "Clean Crunch", "amp": true, "cab": true },
-    "0_B": { "name": "Heavy Lead", "amp": true, "cab": false }
-  }
+  "event": "preset_update",
+  "bank": 0,
+  "slot": "A",
+  "name": "Clean Crunch",
+  "amp": true,
+  "cab": true
 }
+```
+
+#### 4. Sync Lifecycle and Errors
+The bridge emits `sync_complete` after all presets, `sync_cancelled` after cancellation, or a structured `error` event when a command cannot be completed:
+```json
+{ "event": "sync_complete", "total": 150 }
+{ "event": "sync_cancelled" }
+{ "event": "error", "code": "sync_unavailable", "message": "Preset sync is already active or the TONEX is disconnected" }
 ```
 
 ---
 
 ## 6. Frontend Integration (`index.html`)
 
-The existing [`index.html`](file:///Users/brandon/Documents/repos/tonexpedal/index.html) is adapted using a **Transport Shim** that automatically detects if it is running on the ESP32 network bridge vs. standalone local browser:
+The existing `index.html` uses explicit local-hardware and WebSocket transport adapters. It only activates the bridge transport after the server positively identifies itself:
 
 ```javascript
-// Auto-detect environment
-const isNetworkBridge = window.location.protocol.startsWith('http') && window.location.port !== '';
-
-if (isNetworkBridge) {
-    // Route MIDI and Sync over WebSocket to ESP32
-    initWebSocketBridge();
-} else {
-    // Fall back to local browser Web MIDI & Web Serial (desktop USB)
-    initLocalHardware();
+const response = await fetch('/api/bridge');
+const identity = await response.json();
+if (identity.service === 'tonex-bridge' && identity.protocol_version === 1) {
+    connectWebSocketBridge();
 }
 ```
 
-This guarantees 100% backward compatibility with desktop Chrome/Edge direct USB connections while unlocking seamless Wi-Fi control on iOS Safari.
+If discovery does not identify a bridge, preset switching and synchronization remain on the original Web MIDI and Web Serial/WebUSB path.
 
 ---
 

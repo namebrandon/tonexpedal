@@ -18,6 +18,7 @@ class ToneXUsbHost {
 public:
     typedef std::function<void(bool connected)> ConnectionCallback;
     typedef std::function<void(uint8_t loaded, uint8_t total)> SyncProgressCallback;
+    typedef std::function<void(uint8_t total)> SyncCompleteCallback;
     typedef std::function<void(const ToneXPresetInfo& info)> PresetReceivedCallback;
 
     ToneXUsbHost();
@@ -39,6 +40,7 @@ public:
     // Callbacks
     void onConnectionChange(ConnectionCallback cb);
     void onSyncProgress(SyncProgressCallback cb);
+    void onSyncComplete(SyncCompleteCallback cb);
     void onPresetReceived(PresetReceivedCallback cb);
 
 private:
@@ -49,6 +51,7 @@ private:
 
     ConnectionCallback _connCb;
     SyncProgressCallback _progCb;
+    SyncCompleteCallback _completeCb;
     PresetReceivedCallback _presetCb;
 
     bool sendCdcFrame(const std::vector<uint8_t>& frame);

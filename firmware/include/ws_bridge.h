@@ -18,6 +18,9 @@ public:
 
     void broadcastStatus(bool tonexConnected, uint8_t activePc = 0);
     void broadcastSyncProgress(uint8_t loaded, uint8_t total);
+    void broadcastSyncComplete(uint8_t total);
+    void broadcastSyncCancelled();
+    void broadcastError(const char* code, const char* message);
     void broadcastPreset(uint8_t bank, char slot, const std::string& name, bool amp, bool cab);
 
     void processIncomingMessage(const std::string& jsonString);
