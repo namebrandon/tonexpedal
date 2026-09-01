@@ -12,6 +12,7 @@ import select
 import struct
 import sys
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Iterable, Optional, Sequence
 
@@ -300,10 +301,66 @@ def run_probe(
     }
 
 
+def summarize_cycle(cycle: int, duration_seconds: float, result: dict) -> dict:
+    presets = result["presets"]
+    return {
+        "cycle": cycle,
+        "duration_ms": round(duration_seconds * 1000),
+        "hello_payload_bytes": result["hello_payload_bytes"],
+        "state_payload_bytes": result["state_payload_bytes"],
+        "presets_checked": result["presets_checked"],
+        "payload_byte_counts": dict(
+            sorted(Counter(preset["payload_bytes"] for preset in presets).items())
+        ),
+        "amp_enabled": sum(1 for preset in presets if preset["amp"]),
+        "cab_enabled": sum(1 for preset in presets if preset["cab"]),
+        "cab_type_counts": dict(sorted(Counter(preset["cab_type"] for preset in presets).items())),
+    }
+
+
+def run_repeated_probe(
+    port: str,
+    preset_indices: Iterable[int],
+    timeout: float,
+    repeat: int,
+) -> dict:
+    indices = tuple(preset_indices)
+    cycles = []
+    started_at = time.monotonic()
+    for cycle in range(1, repeat + 1):
+        cycle_started_at = time.monotonic()
+        result = run_probe(port, indices, timeout, include_names=False)
+        cycles.append(summarize_cycle(cycle, time.monotonic() - cycle_started_at, result))
+
+    durations = [cycle["duration_ms"] for cycle in cycles]
+    return {
+        "status": "ok",
+        "read_only": True,
+        "port": port,
+        "baud_rate": 115200,
+        "cycles_completed": len(cycles),
+        "presets_checked": sum(cycle["presets_checked"] for cycle in cycles),
+        "total_duration_ms": round((time.monotonic() - started_at) * 1000),
+        "cycle_duration_ms": {
+            "min": min(durations),
+            "max": max(durations),
+            "average": round(sum(durations) / len(durations)),
+        },
+        "cycles": cycles,
+    }
+
+
 def positive_float(value: str) -> float:
     parsed = float(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("timeout must be greater than zero")
+    return parsed
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than zero")
     return parsed
 
 
@@ -333,6 +390,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help=f"validate all {TOTAL_PRESETS} presets",
     )
     parser.add_argument("--timeout", type=positive_float, default=3.0, help="response timeout in seconds")
+    parser.add_argument(
+        "--repeat",
+        type=positive_int,
+        default=1,
+        help="open, probe, and close the pedal this many times",
+    )
     parser.add_argument("--show-names", action="store_true", help="include preset names in output")
     parser.add_argument("--json", action="store_true", help="emit JSON instead of human-readable output")
     return parser.parse_args(argv)
@@ -357,12 +420,31 @@ def print_human(result: dict) -> None:
     print(f"result=ok presets_checked={result['presets_checked']} port_closed=true")
 
 
+def print_soak_human(result: dict) -> None:
+    print(f"port={result['port']} baud={result['baud_rate']} read_only=true")
+    for cycle in result["cycles"]:
+        print(
+            "cycle={cycle} result=ok duration_ms={duration_ms} presets_checked={presets_checked} "
+            "payload_byte_counts={payload_byte_counts} cab_type_counts={cab_type_counts} "
+            "port_closed=true".format(**cycle)
+        )
+    print(
+        f"result=ok cycles_completed={result['cycles_completed']} "
+        f"presets_checked={result['presets_checked']} total_duration_ms={result['total_duration_ms']}"
+    )
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     try:
         port = args.port or discover_port()
         indices = range(TOTAL_PRESETS) if args.all else (args.presets or DEFAULT_PRESETS)
-        result = run_probe(port, indices, args.timeout, args.show_names)
+        if args.repeat == 1:
+            result = run_probe(port, indices, args.timeout, args.show_names)
+        else:
+            if args.show_names:
+                raise ProbeError("--show-names cannot be combined with --repeat")
+            result = run_repeated_probe(port, indices, args.timeout, args.repeat)
     except (OSError, ProbeError, ValueError) as exc:
         if args.json:
             print(json.dumps({"status": "error", "message": str(exc)}))
@@ -372,6 +454,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    elif args.repeat > 1:
+        print_soak_human(result)
     else:
         print_human(result)
     return 0

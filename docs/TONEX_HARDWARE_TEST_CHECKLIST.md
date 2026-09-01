@@ -24,6 +24,8 @@ npm run hardware:probe
 
 The default probe validates Hello, State, and preset boundaries 0/127/128/149 without printing preset names. Use `npm run hardware:probe -- --all` to validate all 150 preset responses, or pass `--port` when more than one USB serial device is attached.
 
+Use `npm run hardware:probe -- --all --repeat 10` for a reconnect soak test. Every cycle opens the port, validates the full library without exposing names, closes the port, and reports timing and response-size distributions.
+
 ## 1. Original Direct-MIDI Path
 
 - Select the TONEX MIDI output and confirm the status turns green.
@@ -76,6 +78,16 @@ Do not add raw captures to Git. Files named `tonex-diagnostic-*.json` and JSON f
 - Cancellation releases the port and a second sync can start.
 - The exported diagnostic can be parsed and summarized.
 - The browser does not attempt bridge reconnection on a normal development server.
+
+## Known Direct-USB Baseline
+
+On 2026-08-31, a full-size TONEX Pedal (`VID 0x1963`, `PID 0x0068`) completed 10 consecutive read-only command-line probe cycles on macOS:
+
+- `1,500/1,500` preset responses decoded successfully across 10 serial open/close cycles.
+- Every Hello, State, and preset frame passed HDLC CRC validation.
+- Full-library cycle times ranged from `8.918` to `9.035` seconds.
+- Presets 0–127 returned 1,189-byte payloads; presets 128–149 returned 1,190-byte payloads because of the extended request/response index encoding.
+- No preset names or raw response payloads were retained.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
 

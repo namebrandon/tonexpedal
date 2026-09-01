@@ -69,6 +69,38 @@ class HardwareProbeProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(probe.ProtocolError, "parameter marker"):
             probe.parse_preset_response(0, bytes(payload))
 
+    def test_summarizes_a_name_free_soak_cycle(self):
+        result = {
+            "hello_payload_bytes": 52,
+            "state_payload_bytes": 10,
+            "presets_checked": 2,
+            "presets": [
+                {
+                    "index": 0,
+                    "payload_bytes": 1189,
+                    "name_present": True,
+                    "amp": True,
+                    "cab": True,
+                    "cab_type": "tone_model",
+                },
+                {
+                    "index": 128,
+                    "payload_bytes": 1190,
+                    "name_present": True,
+                    "amp": True,
+                    "cab": False,
+                    "cab_type": "disabled",
+                },
+            ],
+        }
+        summary = probe.summarize_cycle(3, 1.234, result)
+        self.assertEqual(summary["cycle"], 3)
+        self.assertEqual(summary["duration_ms"], 1234)
+        self.assertEqual(summary["payload_byte_counts"], {1189: 1, 1190: 1})
+        self.assertEqual(summary["amp_enabled"], 2)
+        self.assertEqual(summary["cab_enabled"], 1)
+        self.assertEqual(summary["cab_type_counts"], {"disabled": 1, "tone_model": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

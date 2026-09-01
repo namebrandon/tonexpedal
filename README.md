@@ -181,6 +181,12 @@ npm run hardware:probe
 
 It checks Hello, State, and the four preset-request boundaries without exposing preset names. Add `-- --all` to validate all 150 preset responses.
 
+For a repeated full-library soak test that closes and reopens the serial port each cycle:
+
+```bash
+npm run hardware:probe -- --all --repeat 10
+```
+
 ### MIDI Protocol
 
 The TONEX Pedal uses 50 banks × 3 slots (A/B/C) = 150 presets.
