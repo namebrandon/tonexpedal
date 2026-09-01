@@ -680,27 +680,40 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="ui.css">
 </head>
 <body>
     <header>
-        <h1>TONEX Pedal Controller</h1>
+        <div class="brand-block">
+            <span class="brand-mark" aria-hidden="true">TX</span>
+            <div class="brand-copy">
+                <span class="brand-kicker">PEDAL CONTROL SYSTEM</span>
+                <h1>TONEX <strong>REMOTE</strong></h1>
+            </div>
+        </div>
         <div class="midi-controls">
-            <label data-i18n="device">Device :</label>
-            <select id="midi-device"><option value="" data-i18n="choose">-- Choisir --</option></select>
-            <label data-i18n="channel">Canal :</label>
-            <select id="midi-channel"></select>
+            <div class="control-field device-field">
+                <label for="midi-device" data-i18n="device">Device :</label>
+                <select id="midi-device"><option value="" data-i18n="choose">-- Choisir --</option></select>
+            </div>
+            <div class="control-field channel-field">
+                <label for="midi-channel" data-i18n="channel">Canal :</label>
+                <select id="midi-channel"></select>
+            </div>
         </div>
         <div class="header-right">
-            <button id="langToggle" class="icon-btn lang-btn" title="Switch language">EN</button>
-            <a href="docs/" target="_blank" class="icon-btn" title="Documentation">?</a>
             <div class="midi-status">
                 <div class="dot" id="midi-dot"></div>
                 <span id="midi-status-text" data-i18n="disconnected">Non connecté</span>
             </div>
-            <button id="syncUSB" class="sync-btn" title="Sync preset names via USB">🔌 Sync USB</button>
-            <button id="exportJSON" class="sync-btn" title="Export preset names to JSON">⬇ JSON</button>
-            <button id="importJSON" class="sync-btn" title="Import preset names from JSON">⬆ JSON</button>
-            <button id="exportDiagnostics" class="sync-btn" title="Export diagnostic capture" hidden>🧪 Diagnostics</button>
+            <div class="header-actions">
+                <button id="syncUSB" class="sync-btn primary-action" data-i18n="syncButton" title="Sync preset names via USB">SYNC USB</button>
+                <button id="exportJSON" class="sync-btn" data-i18n="exportButton" title="Export preset names to JSON">EXPORT</button>
+                <button id="importJSON" class="sync-btn" data-i18n="importButton" title="Import preset names from JSON">IMPORT</button>
+                <button id="exportDiagnostics" class="sync-btn" data-i18n="diagnosticsButton" title="Export diagnostic capture" hidden>DIAGNOSTICS</button>
+                <button id="langToggle" class="icon-btn lang-btn" title="Switch language">EN</button>
+                <a href="docs/" target="_blank" class="icon-btn" title="Documentation">?</a>
+            </div>
             <input type="file" id="importFileInput" accept=".json" style="display:none">
             <div id="syncProgress" class="sync-progress">
                 <div class="sync-progress-bar"><div id="syncProgressFill" class="sync-progress-fill"></div></div>
@@ -710,6 +723,7 @@
     </header>
 
     <div class="operator-status" id="operator-status" role="status" aria-live="polite">
+        <span class="status-legend" data-i18n="systemStatus">System</span>
         <span class="health-chip" id="bridge-health"></span>
         <span class="health-chip" id="pedal-health"></span>
         <span class="health-chip" id="library-health"></span>
@@ -718,12 +732,19 @@
 
     <div class="main-layout" id="main-layout">
         <div class="library-panel">
+            <div class="panel-heading library-heading">
+                <div>
+                    <span class="section-kicker" data-i18n="libraryKicker">Tone library</span>
+                    <h2 data-i18n="libraryTitle">Pedal presets</h2>
+                </div>
+                <span class="panel-meta">50 × 3</span>
+            </div>
             <div class="library-header">
+                <input type="text" class="search-box" id="search-box" data-i18n-placeholder="searchPlaceholder" placeholder="Rechercher un preset...">
                 <div class="trash-zone" id="trash-zone">
                     <span class="trash-icon">🗑️</span>
                     <span data-i18n="trashText">Glisser ici pour effacer le bouton</span>
                 </div>
-                <input type="text" class="search-box" id="search-box" data-i18n-placeholder="searchPlaceholder" placeholder="Rechercher un preset...">
             </div>
             <div class="preset-list" id="preset-list"></div>
         </div>
@@ -731,12 +752,21 @@
         <button class="library-toggle" id="library-toggle" title="Masquer/Afficher la bibliothèque"></button>
 
         <div class="grid-panel">
-            <div class="preset-grid" id="preset-grid"></div>
+            <div class="grid-shell">
+                <div class="panel-heading performance-heading">
+                    <div>
+                        <span class="section-kicker" data-i18n="performanceKicker">Performance</span>
+                        <h2 data-i18n="performanceTitle">Quick access deck</h2>
+                    </div>
+                    <span class="panel-meta" data-i18n="performanceMeta">9 assignable pads</span>
+                </div>
+                <div class="preset-grid" id="preset-grid"></div>
+            </div>
         </div>
     </div>
 
     <footer>
-        <span data-i18n="footerHelp">🔊 AMP &nbsp; 🎛️ CAB &nbsp; | &nbsp; Clic preset = écouter &nbsp; | &nbsp; Drag = assigner / swap</span>
+        <span data-i18n="footerHelp">AMP / CAB &nbsp; • &nbsp; Clic preset = écouter &nbsp; • &nbsp; Drag = assigner / swap</span>
         <span id="active-preset" data-i18n="activePreset">Preset actif: --</span>
     </footer>
 
@@ -772,7 +802,7 @@
                 trashText: 'Glisser ici pour effacer le bouton',
                 searchPlaceholder: 'Rechercher un preset...',
                 empty: 'Vide',
-                footerHelp: '🔊 AMP &nbsp; 🎛️ CAB &nbsp; | &nbsp; Clic preset = \u00e9couter &nbsp; | &nbsp; Drag = assigner / swap',
+                footerHelp: 'AMP / CAB &nbsp; • &nbsp; Clic preset = \u00e9couter &nbsp; • &nbsp; Drag = assigner / swap',
                 activePreset: 'Preset actif: ',
                 editTitle: '\u00c9diter le preset',
                 editButton: '\u00c9diter le bouton ',
@@ -783,7 +813,7 @@
                 save: 'Valider',
                 bankLabel: 'Bank ',
                 syncTitle: 'Synchroniser les noms de presets via USB',
-                cancelSync: 'Annuler',
+                cancelSync: 'ANNULER SYNC',
                 portOpening: 'Ouverture port...',
                 syncDone: 'Termin\u00e9! ',
                 syncPresetsRead: ' presets lus',
@@ -803,6 +833,16 @@
                 exportDiagnostics: 'Exporter la capture de diagnostic (peut contenir les noms de presets)',
                 bridgeConnected: 'Connecté (Wi-Fi)',
                 bridgeDevice: 'ToneX (Pont Wi-Fi)',
+                syncButton: 'SYNC USB',
+                exportButton: 'EXPORTER',
+                importButton: 'IMPORTER',
+                diagnosticsButton: 'DIAGNOSTIC',
+                systemStatus: 'Système',
+                libraryKicker: 'Bibliothèque de sons',
+                libraryTitle: 'Presets de la pédale',
+                performanceKicker: 'Performance',
+                performanceTitle: 'Accès rapide',
+                performanceMeta: '9 pads assignables',
                 bridgeOnline: 'Pont : en ligne',
                 bridgeConnecting: 'Pont : connexion…',
                 bridgeOffline: 'Pont : hors ligne',
@@ -835,7 +875,7 @@
                 trashText: 'Drag here to clear button',
                 searchPlaceholder: 'Search a preset...',
                 empty: 'Empty',
-                footerHelp: '🔊 AMP &nbsp; 🎛️ CAB &nbsp; | &nbsp; Click preset = listen &nbsp; | &nbsp; Drag = assign / swap',
+                footerHelp: 'AMP / CAB &nbsp; • &nbsp; Click preset = listen &nbsp; • &nbsp; Drag = assign / swap',
                 activePreset: 'Active preset: ',
                 editTitle: 'Edit preset',
                 editButton: 'Edit button ',
@@ -846,7 +886,7 @@
                 save: 'Save',
                 bankLabel: 'Bank ',
                 syncTitle: 'Sync preset names via USB',
-                cancelSync: 'Cancel',
+                cancelSync: 'CANCEL SYNC',
                 portOpening: 'Opening port...',
                 syncDone: 'Done! ',
                 syncPresetsRead: ' presets read',
@@ -866,6 +906,16 @@
                 exportDiagnostics: 'Export diagnostic capture (may contain preset names)',
                 bridgeConnected: 'Connected (Wi-Fi)',
                 bridgeDevice: 'ToneX (Wi-Fi Bridge)',
+                syncButton: 'SYNC USB',
+                exportButton: 'EXPORT',
+                importButton: 'IMPORT',
+                diagnosticsButton: 'DIAGNOSTICS',
+                systemStatus: 'System',
+                libraryKicker: 'Tone library',
+                libraryTitle: 'Pedal presets',
+                performanceKicker: 'Performance',
+                performanceTitle: 'Quick access deck',
+                performanceMeta: '9 assignable pads',
                 bridgeOnline: 'Bridge: online',
                 bridgeConnecting: 'Bridge: connecting…',
                 bridgeOffline: 'Bridge: offline',
@@ -929,9 +979,7 @@
             document.getElementById('importJSON').title = t('importJSON');
             document.getElementById('exportDiagnostics').title = t('exportDiagnostics');
 
-            if (document.getElementById('active-preset').dataset.base !== undefined) {
-                updateActivePresetDisplay();
-            }
+            updateActivePresetDisplay();
             updateOperatorHealth();
             updatePresetCommandStatus();
         }
@@ -1330,7 +1378,7 @@
             if (syncProgressHideTimer) clearTimeout(syncProgressHideTimer);
             bridgeSyncActive = true;
             libraryFreshness = 'syncing';
-            ui.button.textContent = '\u23f9 ' + t('cancelSync');
+            ui.button.textContent = t('cancelSync');
             ui.progress.classList.add('active');
             ui.fill.style.width = '0%';
             ui.text.textContent = t('syncInProgress');
@@ -1340,7 +1388,7 @@
         function finishBridgeSync(message, percent, autoHide = true) {
             const ui = syncUiElements();
             bridgeSyncActive = false;
-            ui.button.textContent = '\ud83d\udd0c Sync USB';
+            ui.button.textContent = t('syncButton');
             ui.progress.classList.add('active');
             ui.fill.style.width = Math.max(0, Math.min(100, percent || 0)) + '%';
             ui.text.textContent = message;
@@ -1878,6 +1926,7 @@
                 const btn = document.createElement('div');
                 btn.className = 'grid-btn';
                 btn.dataset.slotIndex = i;
+                btn.dataset.pad = String(i + 1).padStart(2, '0');
 
                 const assigned = state.buttons[i];
 
@@ -2454,7 +2503,7 @@
             if (transportIsOpen()) {
                 recordDiagnosticEvent('sync_cancel_requested', { transport: useUsb ? 'webusb' : 'webserial' });
                 await transportDisconnect();
-                syncBtn.textContent = '\ud83d\udd0c Sync USB';
+                syncBtn.textContent = t('syncButton');
                 progressEl.classList.remove('active');
                 libraryFreshness = Object.keys(state.presets).length > 0 ? 'cached' : 'empty';
                 updateOperatorHealth();
@@ -2552,7 +2601,7 @@
                 return;
             }
 
-            syncBtn.textContent = '\u23f9 ' + t('cancelSync');
+            syncBtn.textContent = t('cancelSync');
             progressEl.classList.add('active');
             textEl.textContent = t('portOpening');
             fillEl.style.width = '0%';
@@ -2679,7 +2728,7 @@
                 libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
             } finally {
                 await transportDisconnect();
-                syncBtn.textContent = '\ud83d\udd0c Sync USB';
+                syncBtn.textContent = t('syncButton');
                 updateOperatorHealth();
                 setTimeout(() => progressEl.classList.remove('active'), 3000);
             }

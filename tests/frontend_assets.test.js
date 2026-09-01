@@ -25,4 +25,12 @@ describe('Deployed Frontend Assets', () => {
             'Run the same favicon update against favicon.svg and firmware/data/favicon.svg'
         );
     });
+
+    it('keeps the firmware-hosted interface theme identical to the root theme', () => {
+        assert.deepStrictEqual(
+            read('firmware/data/ui.css'),
+            read('ui.css'),
+            'Run the same theme update against ui.css and firmware/data/ui.css'
+        );
+    });
 });
