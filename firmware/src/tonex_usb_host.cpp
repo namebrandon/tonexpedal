@@ -670,7 +670,7 @@ void ToneXUsbHost::runSync() {
         failSync("Unable to send the TONEX hello command");
         return;
     }
-    if (readCdcFrame(3000).empty()) {
+    if (readCdcResponse(3000).empty()) {
         if (_syncing) failSync("The TONEX did not answer the hello command");
         return;
     }
@@ -681,7 +681,7 @@ void ToneXUsbHost::runSync() {
         failSync("Unable to request the TONEX state");
         return;
     }
-    if (readCdcFrame(3000).empty()) {
+    if (readCdcResponse(3000).empty()) {
         if (_syncing) failSync("The TONEX did not answer the state request");
         return;
     }
@@ -694,7 +694,7 @@ void ToneXUsbHost::runSync() {
             return;
         }
 
-        const std::vector<uint8_t> response = readCdcFrame(3000);
+        const std::vector<uint8_t> response = readCdcResponse(3000);
         if (!_syncing) return;
         if (response.empty()) {
             failSync("Timed out waiting for preset " + std::to_string(index));
@@ -758,6 +758,25 @@ void ToneXUsbHost::handleCdcEvent(const std::vector<uint8_t>& payload) {
     }
     Serial.printf("[USB] Active preset event: index=%u\n", presetIndex);
     if (_activePresetCb) _activePresetCb(presetIndex);
+}
+
+std::vector<uint8_t> ToneXUsbHost::readCdcResponse(uint32_t timeoutMs) {
+    const uint32_t startedAt = millis();
+    while (_connected && _syncing) {
+        const uint32_t elapsed = millis() - startedAt;
+        if (elapsed >= timeoutMs) break;
+        const uint32_t remaining = timeoutMs - elapsed;
+        std::vector<uint8_t> payload = readCdcFrame(remaining);
+        if (payload.empty()) return {};
+
+        uint8_t presetIndex = 0;
+        if (ToneXHDLC::decodeActivePresetEvent(payload.data(), payload.size(), presetIndex)) {
+            handleCdcEvent(payload);
+            continue;
+        }
+        return payload;
+    }
+    return {};
 }
 #endif
 

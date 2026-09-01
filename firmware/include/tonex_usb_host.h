@@ -107,6 +107,7 @@ private:
     void runSync();
     void failSync(const std::string& message);
     void handleCdcEvent(const std::vector<uint8_t>& payload);
+    std::vector<uint8_t> readCdcResponse(uint32_t timeoutMs);
 #endif
 
     ConnectionCallback _connCb;
