@@ -196,6 +196,9 @@ void WsBridge::processIncomingMessage(const std::string& jsonString) {
         uint8_t pc = ToneXHDLC::pcFromBankSlot(static_cast<uint8_t>(bank), slot);
         broadcastMidiAccepted(pc, requestId);
 
+    } else if (strcmp(action, "status_request") == 0) {
+        broadcastStatus(ToneX.isConnected(), ToneX.activePreset());
+
     } else if (strcmp(action, "sync_start") == 0) {
         if (ToneX.startSync()) {
             StatusLed.setState(LedState::SYNCING);

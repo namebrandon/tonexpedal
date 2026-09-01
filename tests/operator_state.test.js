@@ -128,4 +128,18 @@ describe('Preset command bridge contract', () => {
         assert.doesNotMatch(midiAction[0], /broadcastStatus/);
         assert.match(midiAction[0], /broadcastMidiAccepted/);
     });
+
+    it('polls bridge health and supports firmware status requests', () => {
+        assert.match(frontend, /BRIDGE_HEARTBEAT_INTERVAL_MS/);
+        assert.match(frontend, /action: 'status_request'/);
+        assert.match(frontend, /bridgeLastMessageAt/);
+        assert.match(firmware, /strcmp\(action, "status_request"\)/);
+        assert.match(firmware, /broadcastStatus\(ToneX\.isConnected\(\), ToneX\.activePreset\(\)\)/);
+    });
+
+    it('refreshes direct WebMIDI outputs when devices are connected or removed', () => {
+        assert.match(frontend, /function refreshMIDIOutputs\(\)/);
+        assert.match(frontend, /midiAccessHandle\.onstatechange/);
+        assert.match(frontend, /output\.state !== 'disconnected'/);
+    });
 });

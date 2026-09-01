@@ -951,6 +951,8 @@
         const BRIDGE_DISCOVERY_PATH = '/api/bridge';
         const BRIDGE_PROTOCOL_VERSION = 1;
         const DIAGNOSTIC_SCHEMA_VERSION = 1;
+        const BRIDGE_HEARTBEAT_INTERVAL_MS = 5000;
+        const BRIDGE_STALE_AFTER_MS = 12000;
         const PRESET_SEND_DEBOUNCE_MS = 60;
         const PRESET_CONFIRM_TIMEOUT_MS = 2500;
         const diagnosticsEnabled = new URLSearchParams(window.location.search).get('debug') === '1';
@@ -969,6 +971,7 @@
         } : null;
 
         let midiOutput = null;
+        let midiAccessHandle = null;
         let midiChannel = 0;
         let activePresetPC = -1;
         let editingButtonSlot = null;
@@ -980,6 +983,8 @@
         let isBridgeToneXConnected = false;
         let isBridgeHost = false;
         let bridgeReconnectTimer = null;
+        let bridgeHeartbeatTimer = null;
+        let bridgeLastMessageAt = 0;
         let bridgeSyncActive = false;
         let syncProgressHideTimer = null;
         let presetDispatchTimer = null;
@@ -1380,6 +1385,38 @@
             }, 4000);
         }
 
+        function stopBridgeHeartbeat() {
+            if (bridgeHeartbeatTimer) clearInterval(bridgeHeartbeatTimer);
+            bridgeHeartbeatTimer = null;
+        }
+
+        function requestBridgeStatus() {
+            if (!wsBridge || wsBridge.readyState !== WebSocket.OPEN) return false;
+            try {
+                wsBridge.send(JSON.stringify({ action: 'status_request' }));
+                return true;
+            } catch (error) {
+                recordDiagnosticEvent('bridge_status_request_failed', { message: error.message });
+                return false;
+            }
+        }
+
+        function startBridgeHeartbeat() {
+            stopBridgeHeartbeat();
+            bridgeLastMessageAt = Date.now();
+            bridgeHeartbeatTimer = setInterval(() => {
+                if (document.hidden || !wsBridge || wsBridge.readyState !== WebSocket.OPEN) return;
+                if (Date.now() - bridgeLastMessageAt > BRIDGE_STALE_AFTER_MS) {
+                    recordDiagnosticEvent('bridge_stale', {
+                        silent_ms: Date.now() - bridgeLastMessageAt
+                    });
+                    wsBridge.close();
+                    return;
+                }
+                requestBridgeStatus();
+            }, BRIDGE_HEARTBEAT_INTERVAL_MS);
+        }
+
         function connectWebSocketBridge() {
             if (!isBridgeHost) return;
             if (wsBridge && (wsBridge.readyState === WebSocket.OPEN || wsBridge.readyState === WebSocket.CONNECTING)) return;
@@ -1394,6 +1431,7 @@
                     if (bridgeReconnectTimer) clearTimeout(bridgeReconnectTimer);
                     bridgeReconnectTimer = null;
                     isBridgeConnected = true;
+                    startBridgeHeartbeat();
                     updateMIDIStatus(isBridgeToneXConnected, true);
                     applyPresetCommandEvent({ type: 'connected_without_preset' });
                     showBridgeDeviceOption();
@@ -1403,6 +1441,7 @@
 
                 wsBridge.onmessage = (event) => {
                     try {
+                        bridgeLastMessageAt = Date.now();
                         const data = JSON.parse(event.data);
                         recordDiagnosticEvent('bridge_rx', { message: data });
                         if (data.event === 'status') {
@@ -1464,6 +1503,7 @@
 
                 wsBridge.onclose = () => {
                     recordDiagnosticEvent('bridge_disconnected');
+                    stopBridgeHeartbeat();
                     wsBridge = null;
                     isBridgeConnected = false;
                     isBridgeToneXConnected = false;
@@ -1491,6 +1531,16 @@
                 scheduleBridgeReconnect();
             }
         }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden || !isBridgeHost) return;
+            if (wsBridge && wsBridge.readyState === WebSocket.OPEN) {
+                bridgeLastMessageAt = Date.now();
+                requestBridgeStatus();
+            } else {
+                connectWebSocketBridge();
+            }
+        });
 
         // --- MIDI ---
         function updateActivePresetDisplay() {
@@ -1542,78 +1592,100 @@
             }, PRESET_SEND_DEBOUNCE_MS);
         }
 
-        async function initMIDI() {
-            try {
-                const midiAccess = await navigator.requestMIDIAccess();
-                const select = document.getElementById('midi-device');
-                select.innerHTML = '';
+        function refreshMIDIOutputs() {
+            if (!midiAccessHandle) return;
+            const select = document.getElementById('midi-device');
+            const previousOutput = midiOutput;
+            const outputs = Array.from(midiAccessHandle.outputs.values())
+                .filter(output => output.state !== 'disconnected');
 
-                const outputs = Array.from(midiAccess.outputs.values());
-                if (outputs.length === 0) {
-                    const opt = document.createElement('option');
-                    opt.textContent = t('noDevice');
-                    select.appendChild(opt);
-                    if (isBridgeConnected) showBridgeDeviceOption();
-                    return;
+            select.innerHTML = '';
+            outputs.forEach(output => {
+                const opt = document.createElement('option');
+                opt.value = 'midi:' + output.id;
+                opt.textContent = output.name;
+                select.appendChild(opt);
+            });
+
+            midiOutput = previousOutput ?
+                (outputs.find(output => output.id === previousOutput.id) || null) :
+                (outputs.find(output => state.midi.device && output.name === state.midi.device) ||
+                    outputs[0] || null);
+
+            if (midiOutput) {
+                select.value = 'midi:' + midiOutput.id;
+            } else {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.textContent = t('noDevice');
+                select.insertBefore(opt, select.firstChild);
+                select.value = '';
+                if (previousOutput && !isBridgeHost) {
+                    clearPresetTimers();
+                    applyPresetCommandEvent({ type: 'disconnected' });
                 }
+            }
 
-                outputs.forEach((out, i) => {
-                    const opt = document.createElement('option');
-                    opt.value = i;
-                    opt.textContent = out.name;
-                    select.appendChild(opt);
-                });
+            if (isBridgeConnected) {
+                showBridgeDeviceOption();
+                updateMIDIStatus(isBridgeToneXConnected, true);
+            } else {
+                updateMIDIStatus(!!midiOutput);
+            }
+        }
 
+        async function initMIDI() {
+            const chSelect = document.getElementById('midi-channel');
+            chSelect.innerHTML = '';
+            for (let i = 0; i < 16; i++) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = 'Ch ' + (i + 1);
+                chSelect.appendChild(opt);
+            }
+            chSelect.value = state.midi.channel || 0;
+            midiChannel = state.midi.channel || 0;
+            chSelect.addEventListener('change', () => {
+                midiChannel = parseInt(chSelect.value);
+                state.midi.channel = midiChannel;
+                saveState();
+            });
+
+            try {
+                midiAccessHandle = await navigator.requestMIDIAccess();
+                const select = document.getElementById('midi-device');
                 select.addEventListener('change', () => {
                     if (select.value === 'bridge') {
                         updateMIDIStatus(isBridgeToneXConnected, true);
                         return;
                     }
-                    midiOutput = outputs[parseInt(select.value)];
-                    updateMIDIStatus(true);
-                    state.midi.device = midiOutput.name;
-                    saveState();
-                });
 
-                let found = false;
-                if (state.midi.device) {
-                    const idx = outputs.findIndex(o => o.name === state.midi.device);
-                    if (idx >= 0) {
-                        select.value = idx;
-                        midiOutput = outputs[idx];
-                        found = true;
+                    const outputId = select.value.startsWith('midi:') ? select.value.slice(5) : '';
+                    midiOutput = Array.from(midiAccessHandle.outputs.values())
+                        .find(output => output.id === outputId && output.state !== 'disconnected') || null;
+                    updateMIDIStatus(!!midiOutput);
+                    if (midiOutput) {
+                        state.midi.device = midiOutput.name;
+                        saveState();
                     }
-                }
-                if (!found && outputs.length > 0) {
-                    midiOutput = outputs[0];
-                    select.value = 0;
-                }
-                updateMIDIStatus(!!midiOutput);
-                if (isBridgeConnected) {
-                    showBridgeDeviceOption();
-                    updateMIDIStatus(isBridgeToneXConnected, true);
-                }
-
-                const chSelect = document.getElementById('midi-channel');
-                chSelect.innerHTML = '';
-                for (let i = 0; i < 16; i++) {
-                    const opt = document.createElement('option');
-                    opt.value = i;
-                    opt.textContent = 'Ch ' + (i + 1);
-                    chSelect.appendChild(opt);
-                }
-                chSelect.value = state.midi.channel || 0;
-                midiChannel = state.midi.channel || 0;
-                chSelect.addEventListener('change', () => {
-                    midiChannel = parseInt(chSelect.value);
-                    state.midi.channel = midiChannel;
-                    saveState();
                 });
 
+                midiAccessHandle.onstatechange = event => {
+                    recordDiagnosticEvent('midi_device_state', {
+                        id: event.port.id,
+                        name: event.port.name,
+                        type: event.port.type,
+                        state: event.port.state,
+                        connection: event.port.connection
+                    });
+                    refreshMIDIOutputs();
+                };
+                refreshMIDIOutputs();
             } catch (err) {
                 console.error('Web MIDI error:', err);
                 if (!isBridgeConnected) {
                     document.getElementById('midi-status-text').textContent = t('webMidiNotSupported');
+                    updateOperatorHealth();
                 }
             }
         }
