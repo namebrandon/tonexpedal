@@ -9,12 +9,13 @@ for (const frontendPath of ['index.html', 'firmware/data/index.html']) {
     describe(`Rig Controls UI in ${frontendPath}`, () => {
         const frontend = fs.readFileSync(path.join(rootDir, frontendPath), 'utf8');
 
-        it('presents the three documented switching controls and a model-volume slider', () => {
+        it('presents the three documented switching controls and a model-volume dial', () => {
             for (const control of ['gate', 'compressor', 'reverb']) {
                 assert.match(frontend, new RegExp(`data-rig-control="${control}"`));
             }
             assert.match(frontend, /rigCabUnavailable/);
-            assert.match(frontend, /id="rig-model-volume" type="range" min="0" max="127"/);
+            assert.match(frontend, /class="rig-knob-control" id="rig-model-volume-knob"/);
+            assert.match(frontend, /id="rig-model-volume" class="rig-knob-input" type="range" min="0" max="100"/);
         });
 
         it('uses only MIDI CCs documented for TONEX Pedal', () => {
@@ -28,7 +29,11 @@ for (const frontendPath of ['index.html', 'firmware/data/index.html']) {
 
         it('rate-limits volume changes and does not claim a read-back state', () => {
             assert.match(frontend, /RIG_VOLUME_THROTTLE_MS = 50/);
-            assert.match(frontend, /function queueRigVolume\(value\)/);
+            assert.match(frontend, /function modelVolumePositionToMidi\(position\)/);
+            assert.match(frontend, /\* 127 \/ 100/);
+            assert.match(frontend, /function formatModelVolume\(position\)/);
+            assert.match(frontend, /\(position \/ 10\)\.toFixed\(1\)/);
+            assert.match(frontend, /function queueRigVolume\(position\)/);
             assert.match(frontend, /Math\.max\(0, RIG_VOLUME_THROTTLE_MS - elapsed\)/);
             assert.match(frontend, /pedal state is not read back/);
         });

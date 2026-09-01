@@ -792,8 +792,11 @@
                                 <label for="rig-model-volume" data-i18n="rigModelVolume">Model volume</label>
                                 <output id="rig-model-volume-value">—</output>
                             </div>
-                            <input id="rig-model-volume" type="range" min="0" max="127" value="100" aria-describedby="rig-control-note">
-                            <div class="rig-volume-scale"><span>0</span><span>127</span></div>
+                            <div class="rig-knob-control" id="rig-model-volume-knob" style="--knob-angle: 0deg;">
+                                <span class="rig-knob-dial" aria-hidden="true"><span class="rig-knob-indicator"></span></span>
+                                <input id="rig-model-volume" class="rig-knob-input" type="range" min="0" max="100" value="50" aria-describedby="rig-control-note">
+                            </div>
+                            <div class="rig-volume-scale"><span>0.0</span><span>10.0</span></div>
                         </div>
                         <p class="rig-control-note" id="rig-control-note" data-i18n="rigControlNote">Model Volume is per-preset. Shows the last command sent; pedal state is not read back.</p>
                         <p class="rig-control-status" id="rig-control-status" aria-live="polite"></p>
@@ -918,8 +921,8 @@
                 rigReverb: 'Réverbération',
                 rigCab: 'Simulation cab',
                 rigCabUnavailable: 'NON DISPONIBLE',
-                rigModelVolume: 'Volume du modèle',
-                rigControlNote: 'Le volume du modèle est par preset. Affiche la dernière commande envoyée ; l’état de la pédale n’est pas relu.',
+                rigModelVolume: 'Volume du modèle (0.0–10.0)',
+                rigControlNote: 'Le volume du modèle est par preset. Le cadran envoie la dernière commande ; l’état de la pédale n’est pas relu.',
                 rigStateOn: 'ACTIVÉ',
                 rigStateOff: 'DÉSACTIVÉ',
                 rigStateUnknown: '—',
@@ -1017,8 +1020,8 @@
                 rigReverb: 'Reverb',
                 rigCab: 'Cab simulation',
                 rigCabUnavailable: 'NOT AVAILABLE',
-                rigModelVolume: 'Model volume',
-                rigControlNote: 'Model Volume is per-preset. Shows the last command sent; pedal state is not read back.',
+                rigModelVolume: 'Model volume (0.0–10.0)',
+                rigControlNote: 'Model Volume is per-preset. The dial shows the last command sent; pedal state is not read back.',
                 rigStateOn: 'ON',
                 rigStateOff: 'OFF',
                 rigStateUnknown: '—',
@@ -1161,7 +1164,9 @@
         const rigCommandState = {
             controls: Object.fromEntries(Object.keys(RIG_CONTROL_DEFINITIONS).map(name => [name, {
                 value: null,
+                uiValue: null,
                 lastSentValue: null,
+                lastSentUiValue: null,
                 lastDispatchedValue: null,
                 pendingRequestId: null,
                 status: 'unknown'
@@ -1471,6 +1476,18 @@
             return t(key).replace('{control}', rigControlLabel(name));
         }
 
+        function modelVolumePositionToMidi(position) {
+            return Math.round(Math.max(0, Math.min(100, position)) * 127 / 100);
+        }
+
+        function midiToModelVolumePosition(value) {
+            return Math.round(Math.max(0, Math.min(127, value)) * 100 / 127);
+        }
+
+        function formatModelVolume(position) {
+            return (position / 10).toFixed(1);
+        }
+
         function updateRigControlUi() {
             const transport = getActiveControlTransport();
             const canSend = !stageModeActive && transport.isConnected();
@@ -1499,14 +1516,19 @@
             const volume = rigCommandState.controls.volume;
             const slider = document.getElementById('rig-model-volume');
             const output = document.getElementById('rig-model-volume-value');
+            const knob = document.getElementById('rig-model-volume-knob');
             slider.disabled = !canSend;
             if (volume.value === null) {
                 output.textContent = t('rigStateUnknown');
                 slider.setAttribute('aria-valuetext', t('rigStateUnknown'));
+                slider.value = '50';
+                knob.style.setProperty('--knob-angle', '0deg');
             } else {
-                output.textContent = String(volume.value);
-                slider.value = String(volume.value);
-                slider.setAttribute('aria-valuetext', String(volume.value));
+                const position = volume.uiValue === null ? midiToModelVolumePosition(volume.value) : volume.uiValue;
+                output.textContent = formatModelVolume(position);
+                slider.value = String(position);
+                slider.setAttribute('aria-valuetext', formatModelVolume(position));
+                knob.style.setProperty('--knob-angle', (-135 + position * 2.7) + 'deg');
                 if (!visibleStatus && volume.status === 'sending') visibleStatus = formatRigStatus('rigSending', 'volume');
                 if (!visibleStatus && volume.status === 'error') {
                     visibleStatus = formatRigStatus('rigError', 'volume');
@@ -1524,6 +1546,7 @@
                 if (control.pendingRequestId !== requestId) continue;
                 control.pendingRequestId = null;
                 control.value = control.lastSentValue;
+                control.uiValue = control.lastSentUiValue;
                 control.lastDispatchedValue = null;
                 control.status = 'error';
                 updateRigControlUi();
@@ -1539,6 +1562,7 @@
             if (control.pendingRequestId !== requestId || control.value !== value) return false;
             control.pendingRequestId = null;
             control.lastSentValue = value;
+            control.lastSentUiValue = control.uiValue;
             control.status = 'sent';
             updateRigControlUi();
             return true;
@@ -1582,8 +1606,10 @@
             if (rigVolumeQueuedValue !== null) queueRigVolume(rigVolumeQueuedValue);
         }
 
-        function queueRigVolume(value) {
+        function queueRigVolume(position) {
+            const value = modelVolumePositionToMidi(position);
             rigCommandState.controls.volume.value = value;
+            rigCommandState.controls.volume.uiValue = position;
             rigCommandState.controls.volume.status = 'sending';
             rigVolumeQueuedValue = value;
             updateRigControlUi();
