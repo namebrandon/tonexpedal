@@ -186,6 +186,14 @@ A Chrome direct-USB operator smoke test on the same Mac and pedal established th
 - Reloading retained all names and correctly changed library health to cached because the new page session could not prove the pedal library was unchanged.
 - USB removal changed the pedal status to disconnected after the macOS/Chrome device event arrived, observed at approximately one to two seconds. Reconnection was automatic, did not select an unrelated MIDI output, and retained the cached library.
 
+A live composite-interface test then exercised CoreAudio input, USB-MIDI output, and CDC input while a guitarist played through the pedal:
+
+- The TONEX stereo CoreAudio input streamed continuously at 44.1 kHz for 40 seconds and was discarded without being saved.
+- During that stream, MIDI selected index 3 for two seconds and restored index 0.
+- CDC reported both 1,189-byte active-preset events in order at approximately 6.35 and 8.38 seconds, with zero CRC errors.
+- CoreAudio, MIDI, and CDC all completed without transport errors, and the guitarist reported no abnormal dropout, click, freeze, or delayed response beyond the expected preset change.
+- This validates simultaneous CoreAudio input plus both control interfaces on macOS. Opening the TONEX CoreAudio output concurrently remains a separate test if USB playback or re-amping becomes an application requirement.
+
 Physical-control captures on the same pedal established the following unsolicited CDC behavior:
 
 - A five-second idle baseline produced no frames.
