@@ -7,6 +7,7 @@ import Foundation
 struct ProbeArguments {
     let restoreIndex: Int
     let delay: TimeInterval
+    let targets: [Int]
 }
 
 enum ProbeFailure: Error, CustomStringConvertible {
@@ -21,24 +22,44 @@ enum ProbeFailure: Error, CustomStringConvertible {
 
 func parseArguments() -> ProbeArguments? {
     let arguments = Array(CommandLine.arguments.dropFirst())
-    guard arguments.count == 2 || arguments.count == 4 else {
-        return nil
-    }
-    guard arguments[0] == "--restore-index",
-          let restoreIndex = Int(arguments[1]),
-          (0..<150).contains(restoreIndex) else {
-        return nil
-    }
+    var restoreIndex: Int?
     var delay: TimeInterval = 1.5
-    if arguments.count == 4 {
-        guard arguments[2] == "--delay",
-              let parsedDelay = TimeInterval(arguments[3]),
-              parsedDelay >= 0.25 else {
+    var targets = [0, 127, 128, 149]
+    var offset = 0
+
+    while offset < arguments.count {
+        guard offset + 1 < arguments.count else { return nil }
+        let option = arguments[offset]
+        let value = arguments[offset + 1]
+        switch option {
+        case "--restore-index":
+            guard restoreIndex == nil,
+                  let parsedIndex = Int(value),
+                  (0..<150).contains(parsedIndex) else {
+                return nil
+            }
+            restoreIndex = parsedIndex
+        case "--delay":
+            guard let parsedDelay = TimeInterval(value), parsedDelay >= 0.05 else {
+                return nil
+            }
+            delay = parsedDelay
+        case "--indices":
+            let parsedTargets = value.split(separator: ",").compactMap { Int($0) }
+            guard !parsedTargets.isEmpty,
+                  parsedTargets.count == value.split(separator: ",").count,
+                  parsedTargets.allSatisfy({ (0..<150).contains($0) }) else {
+                return nil
+            }
+            targets = parsedTargets
+        default:
             return nil
         }
-        delay = parsedDelay
+        offset += 2
     }
-    return ProbeArguments(restoreIndex: restoreIndex, delay: delay)
+
+    guard let restoreIndex else { return nil }
+    return ProbeArguments(restoreIndex: restoreIndex, delay: delay, targets: targets)
 }
 
 func endpointName(_ endpoint: MIDIEndpointRef) -> String {
@@ -87,7 +108,7 @@ func sendPreset(_ index: Int, port: MIDIPortRef, destination: MIDIEndpointRef) t
 
 guard let arguments = parseArguments() else {
     FileHandle.standardError.write(
-        Data("usage: tonex_midi_probe.swift --restore-index 0..149 [--delay seconds]\n".utf8)
+        Data("usage: tonex_midi_probe.swift --restore-index 0..149 [--delay seconds] [--indices i,j,...]\n".utf8)
     )
     exit(2)
 }
@@ -104,7 +125,7 @@ guard destinations.count == 1, let (destination, destinationName) = destinations
 
 var client = MIDIClientRef()
 var outputPort = MIDIPortRef()
-guard MIDIClientCreate("TONEX boundary probe" as CFString, nil, nil, &client) == noErr,
+guard MIDIClientCreate("TONEX MIDI probe" as CFString, nil, nil, &client) == noErr,
       MIDIOutputPortCreate(client, "TONEX probe output" as CFString, &outputPort) == noErr else {
     FileHandle.standardError.write(Data("error: could not create CoreMIDI output\n".utf8))
     exit(1)
@@ -122,10 +143,9 @@ defer {
 }
 
 do {
-    let targets = [0, 127, 128, 149]
-    print("destination=\(destinationName) channel=1 restore_index=\(arguments.restoreIndex)")
+    print("destination=\(destinationName) channel=1 restore_index=\(arguments.restoreIndex) targets=\(arguments.targets.count)")
     restoreArmed = true
-    for index in targets {
+    for index in arguments.targets {
         try sendPreset(index, port: outputPort, destination: destination)
         print("sent index=\(index) display=\(displayLabel(for: index)) bank_select=\(index / 128) program=\(index % 128)")
         Thread.sleep(forTimeInterval: arguments.delay)
@@ -134,7 +154,7 @@ do {
     Thread.sleep(forTimeInterval: arguments.delay)
     restoreArmed = false
     print("restored index=\(arguments.restoreIndex) display=\(displayLabel(for: arguments.restoreIndex))")
-    print("result=ok targets=\(targets.count)")
+    print("result=ok targets=\(arguments.targets.count)")
 } catch {
     FileHandle.standardError.write(Data("error: \(error)\n".utf8))
     exit(1)
