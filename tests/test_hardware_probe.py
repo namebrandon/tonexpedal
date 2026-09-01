@@ -70,7 +70,10 @@ class HardwareProbeProtocolTests(unittest.TestCase):
 
     def test_unsolicited_payload_summary_limits_long_payload_data(self):
         short = probe.summarize_unsolicited_payload(bytes.fromhex("b9 01 00"))
-        self.assertEqual(short, {"payload_bytes": 3, "payload_hex": "b9 01 00"})
+        self.assertEqual(short["payload_bytes"], 3)
+        self.assertEqual(short["event_type"], "unknown")
+        self.assertEqual(short["payload_hex"], "b9 01 00")
+        self.assertEqual(len(short["payload_fingerprint"]), 16)
 
         long_payload = bytes(range(100))
         long = probe.summarize_unsolicited_payload(long_payload)
@@ -79,7 +82,14 @@ class HardwareProbeProtocolTests(unittest.TestCase):
         self.assertNotIn("payload_hex", long)
 
         preset = probe.summarize_unsolicited_payload(bytes(self.preset_payload(149)))
+        self.assertEqual(preset["event_type"], "solicited_preset")
         self.assertEqual(preset["preset_index"], 149)
+
+        active = probe.summarize_unsolicited_payload(
+            bytes(self.preset_payload(149, unsolicited=True))
+        )
+        self.assertEqual(active["event_type"], "active_preset")
+        self.assertEqual(active["preset_index"], 149)
 
     def test_preset_request_boundary_encoding(self):
         preset_127 = probe.create_preset_request(127)

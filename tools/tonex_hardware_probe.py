@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 import glob
+import hashlib
 import json
 import os
 import select
@@ -444,11 +445,23 @@ def run_probe(
 
 
 def summarize_unsolicited_payload(payload: bytes) -> dict:
-    summary = {"payload_bytes": len(payload)}
-    try:
-        summary["preset_index"] = parse_preset_index(payload)
-    except ProtocolError:
-        pass
+    summary = {
+        "payload_bytes": len(payload),
+        "payload_fingerprint": hashlib.sha256(payload).hexdigest()[:16],
+        "event_type": "unknown",
+    }
+    if len(payload) >= 12 and payload[7:12] == ACTIVE_PRESET_EVENT_PREFIX:
+        summary["event_type"] = "active_preset"
+        try:
+            summary["preset_index"] = parse_active_preset_event_index(payload)
+        except ProtocolError:
+            summary["event_type"] = "malformed_active_preset"
+    elif len(payload) >= 12 and payload[7:12] == PRESET_RESPONSE_PREFIX:
+        summary["event_type"] = "solicited_preset"
+        try:
+            summary["preset_index"] = parse_preset_response_index(payload)
+        except ProtocolError:
+            summary["event_type"] = "malformed_solicited_preset"
     if len(payload) <= 64:
         summary["payload_hex"] = payload.hex(" ")
     else:
