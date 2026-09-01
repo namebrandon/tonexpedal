@@ -121,11 +121,26 @@ void WsBridge::broadcastSyncCancelled() {
 #endif
 }
 
-void WsBridge::broadcastError(const char* code, const char* message) {
+void WsBridge::broadcastMidiAccepted(uint8_t pc, uint32_t requestId) {
+    JsonDocument doc;
+    doc["event"] = "midi_accepted";
+    doc["pc"] = pc;
+    if (requestId > 0) doc["request_id"] = requestId;
+
+    std::string out;
+    serializeJson(doc, out);
+
+#ifndef NATIVE_TEST
+    _ws.textAll(out.c_str());
+#endif
+}
+
+void WsBridge::broadcastError(const char* code, const char* message, uint32_t requestId) {
     JsonDocument doc;
     doc["event"] = "error";
     doc["code"] = code;
     doc["message"] = message;
+    if (requestId > 0) doc["request_id"] = requestId;
 
     std::string out;
     serializeJson(doc, out);
@@ -160,17 +175,26 @@ void WsBridge::processIncomingMessage(const std::string& jsonString) {
     const char* action = doc["action"] | "";
 
     if (strcmp(action, "midi_send") == 0) {
-        uint8_t bank = doc["bank"] | 0;
+        int bank = doc["bank"] | -1;
         const char* slotStr = doc["slot"] | "A";
         char slot = slotStr[0];
-        uint8_t channel = doc["channel"] | 0;
+        int channel = doc["channel"] | -1;
+        uint32_t requestId = doc["request_id"] | 0;
 
-        if (!ToneX.sendBankSelectAndPC(bank, slot, channel)) {
-            broadcastError("midi_unavailable", "The TONEX MIDI interface is not ready");
+        if (bank < 0 || bank >= 50 || (slot != 'A' && slot != 'B' && slot != 'C') ||
+            channel < 0 || channel >= 16) {
+            broadcastError("midi_invalid", "Invalid preset or MIDI channel", requestId);
             return;
         }
-        uint8_t pc = ToneXHDLC::pcFromBankSlot(bank, slot);
-        broadcastStatus(ToneX.isConnected(), pc);
+
+        if (!ToneX.sendBankSelectAndPC(
+                static_cast<uint8_t>(bank), slot, static_cast<uint8_t>(channel))) {
+            broadcastError(
+                "midi_unavailable", "The TONEX MIDI interface is not ready", requestId);
+            return;
+        }
+        uint8_t pc = ToneXHDLC::pcFromBankSlot(static_cast<uint8_t>(bank), slot);
+        broadcastMidiAccepted(pc, requestId);
 
     } else if (strcmp(action, "sync_start") == 0) {
         if (ToneX.startSync()) {

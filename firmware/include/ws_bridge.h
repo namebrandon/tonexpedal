@@ -20,7 +20,8 @@ public:
     void broadcastSyncProgress(uint8_t loaded, uint8_t total);
     void broadcastSyncComplete(uint8_t total);
     void broadcastSyncCancelled();
-    void broadcastError(const char* code, const char* message);
+    void broadcastMidiAccepted(uint8_t pc, uint32_t requestId = 0);
+    void broadcastError(const char* code, const char* message, uint32_t requestId = 0);
     void broadcastPreset(uint8_t bank, char slot, const std::string& name, bool amp, bool cab);
 
     void processIncomingMessage(const std::string& jsonString);
