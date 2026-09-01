@@ -36,10 +36,24 @@ def state_sample(payload: bytes, elapsed_seconds: float) -> dict:
     }
 
 
+def preset_sample(expected_index: int, payload: bytes) -> dict:
+    response_index = protocol.parse_preset_response_index(payload)
+    if response_index != expected_index:
+        raise protocol.ProtocolError(
+            f"Preset response index {response_index} does not match request index {expected_index}"
+        )
+    return {
+        "preset_index": response_index,
+        "preset_payload_bytes": len(payload),
+        "preset_payload_fingerprint": hashlib.sha256(payload).hexdigest()[:16],
+    }
+
+
 def watch_state(
     port: str,
     seconds: float,
     interval: float,
+    preset_index: Optional[int] = None,
     sample_handler: Optional[Callable[[dict], None]] = None,
     ready_handler: Optional[Callable[[], None]] = None,
 ) -> dict:
@@ -57,6 +71,16 @@ def watch_state(
                 active_event_handler=active_preset_events.append,
             )
             sample = state_sample(payload, time.monotonic() - started_at)
+            if preset_index is not None:
+                preset_payload = transport.exchange(
+                    protocol.create_preset_request(preset_index),
+                    f"preset {preset_index}",
+                    response_matcher=lambda candidate: (
+                        protocol.parse_preset_response_index(candidate) == preset_index
+                    ),
+                    active_event_handler=active_preset_events.append,
+                )
+                sample.update(preset_sample(preset_index, preset_payload))
             samples.append(sample)
             sample_number += 1
             if sample_handler is not None:
@@ -70,6 +94,13 @@ def watch_state(
 
     distinct_codes = sorted({sample["state_code"] for sample in samples})
     distinct_fingerprints = sorted({sample["payload_fingerprint"] for sample in samples})
+    distinct_preset_fingerprints = sorted(
+        {
+            sample["preset_payload_fingerprint"]
+            for sample in samples
+            if "preset_payload_fingerprint" in sample
+        }
+    )
     return {
         "status": "ok" if crc_errors == 0 else "failed",
         "read_only": True,
@@ -80,6 +111,8 @@ def watch_state(
         "sample_count": len(samples),
         "distinct_state_codes": distinct_codes,
         "distinct_payload_fingerprints": distinct_fingerprints,
+        "preset_index": preset_index,
+        "distinct_preset_payload_fingerprints": distinct_preset_fingerprints,
         "active_preset_events": active_preset_events,
         "crc_errors": crc_errors,
         "samples": samples,
@@ -104,6 +137,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=lambda value: bounded_float(value, 0.1, 10.0, "interval"),
         default=DEFAULT_INTERVAL,
     )
+    parser.add_argument(
+        "--preset-index",
+        type=protocol.preset_index,
+        help="also fingerprint this known active preset response on every sample",
+    )
     parser.add_argument("--json", action="store_true", help="emit one JSON document after capture")
     return parser.parse_args(argv)
 
@@ -121,7 +159,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(
                     f"sample={sample_number} elapsed_ms={sample['elapsed_ms']} "
                     f"state_code={sample['state_code']} fingerprint={sample['payload_fingerprint']} "
-                    f"payload_hex={sample['payload_hex']}",
+                    f"payload_hex={sample['payload_hex']}"
+                    + (
+                        f" preset_index={sample['preset_index']} "
+                        f"preset_bytes={sample['preset_payload_bytes']} "
+                        f"preset_fingerprint={sample['preset_payload_fingerprint']}"
+                        if "preset_index" in sample
+                        else ""
+                    ),
                     flush=True,
                 )
 
@@ -137,6 +182,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             port=port,
             seconds=args.seconds,
             interval=args.interval,
+            preset_index=args.preset_index,
             sample_handler=show_sample,
             ready_handler=ready,
         )
@@ -154,6 +200,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             f"result={result['status']} samples={result['sample_count']} "
             f"distinct_state_codes={result['distinct_state_codes']} "
             f"distinct_fingerprints={len(result['distinct_payload_fingerprints'])} "
+            f"distinct_preset_fingerprints={len(result['distinct_preset_payload_fingerprints'])} "
             f"active_preset_events={result['active_preset_events']} "
             f"crc_errors={result['crc_errors']} port_closed=true"
         )
