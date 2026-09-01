@@ -86,6 +86,12 @@ implemented, so open `192.168.4.1` explicitly. For a deployed unit, override
 development default. Compile-time `wifi_secrets.h` credentials remain supported as
 an optional fallback.
 
+To use the bridge at a venue with a different WLAN, power-cycle the ESP32. It tries
+the saved network for 15 seconds, then opens the setup network when that connection
+fails. Join it, browse to `192.168.4.1`, and save the venue WLAN; the new settings
+replace the old ones. V1 has no physical provisioning/reset button, so a power cycle
+is currently required to enter setup mode after the bridge has already been running.
+
 See full guide: [ESP32-S3 Wireless Bridge Documentation](docs/ESP32_WIRELESS_BRIDGE.md).
 
 ## Usage

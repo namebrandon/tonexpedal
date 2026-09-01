@@ -98,6 +98,20 @@ joining succeeds, the setup AP is stopped and configuration writes are locked. A
 failed initial join leaves the temporary AP available while station reconnection
 continues, preventing bad credentials from making the unit unreachable.
 
+#### Changing to a different WLAN (home to venue)
+
+V1 stores one WLAN profile at a time. To replace the home profile with a venue
+profile, power-cycle the ESP32 at the venue. At boot it attempts the saved WLAN for
+`TONEX_WIFI_CONNECT_TIMEOUT_MS` (15 seconds by default); if it cannot join, it
+opens `TONEX-Setup-XXXXXX`. Connect to that setup network, open
+`http://192.168.4.1`, enter the venue WLAN, and save. The new settings replace the
+previous profile and the device restarts onto the venue network.
+
+There is currently no physical provisioning/reset button. If the bridge is already
+running and loses WLAN, it continues trying the saved profile; power-cycle it to
+invoke the setup recovery path. A dedicated long-press setup button is planned for a
+later hardware revision.
+
 `wifi_secrets.h` remains an optional compile-time fallback and is ignored by Git.
 NVS settings take precedence. Override `TONEX_SETUP_AP_PASSWORD` for a field unit;
 the checked-in value is intended for development and bring-up.
