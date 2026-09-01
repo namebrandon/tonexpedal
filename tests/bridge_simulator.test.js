@@ -105,6 +105,28 @@ describe('Desktop bridge simulator', () => {
         await waitFor(client.messages, message => message.event === 'status' && message.tonex_connected);
     });
 
+    it('accepts only the dedicated, safe rig-control MIDI CC whitelist', async () => {
+        const { baseUrl } = await startSimulator();
+        const client = await connect(baseUrl);
+        await waitFor(client.messages, message => message.event === 'status');
+        client.messages.length = 0;
+
+        client.socket.send(JSON.stringify({
+            action: 'midi_cc', cc: 75, value: 127, channel: 0, request_id: 9
+        }));
+        const accepted = await waitFor(client.messages, message => message.event === 'midi_cc_accepted');
+        assert.deepStrictEqual(
+            { cc: accepted.cc, value: accepted.value, request_id: accepted.request_id },
+            { cc: 75, value: 127, request_id: 9 }
+        );
+
+        client.socket.send(JSON.stringify({
+            action: 'midi_cc', cc: 1, value: 127, channel: 0, request_id: 10
+        }));
+        const rejected = await waitFor(client.messages, message => message.event === 'error' && message.request_id === 10);
+        assert.strictEqual(rejected.code, 'midi_invalid');
+    });
+
     it('enforces sync ownership between browsers', async () => {
         const { baseUrl } = await startSimulator();
         const owner = await connect(baseUrl);

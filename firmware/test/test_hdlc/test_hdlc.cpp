@@ -88,6 +88,12 @@ void test_usb_midi_event_packets(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expectedProgram, packets.programChange, 4);
 }
 
+void test_usb_midi_control_change_packet(void) {
+    const ToneXHDLC::UsbMidiControlChange message = ToneXHDLC::getUsbMidiControlChange(75, 127, 3);
+    const uint8_t expected[] = {0x0B, 0xB3, 75, 127};
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, message.packet, 4);
+}
+
 void test_decode_preset_response(void) {
     std::vector<uint8_t> response(180, 0);
     const size_t nameMarkerOffset = 5;
@@ -175,6 +181,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_midi_math_roundtrip);
     RUN_TEST(test_midi_bank_select_commands);
     RUN_TEST(test_usb_midi_event_packets);
+    RUN_TEST(test_usb_midi_control_change_packet);
     RUN_TEST(test_decode_preset_response);
     RUN_TEST(test_decode_preset_index_boundaries);
     RUN_TEST(test_decode_preset_index_rejects_invalid_payloads);

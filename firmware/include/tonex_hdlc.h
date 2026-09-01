@@ -58,8 +58,14 @@ namespace ToneXHDLC {
         uint8_t programChange[4];
     };
 
+    // USB-MIDI 1.0 packet for a three-byte Control Change message.
+    struct UsbMidiControlChange {
+        uint8_t packet[4];
+    };
+
     BankSlot bankSlotFromPC(uint8_t pc);
     uint8_t pcFromBankSlot(uint8_t bank, char slot);
     MidiMessage getMidiBankSelectAndPC(uint8_t bank, char slot, uint8_t channel = 0);
     UsbMidiPackets getUsbMidiPackets(uint8_t bank, char slot, uint8_t channel = 0);
+    UsbMidiControlChange getUsbMidiControlChange(uint8_t control, uint8_t value, uint8_t channel = 0);
 }

@@ -804,6 +804,24 @@ bool ToneXUsbHost::sendBankSelectAndPC(uint8_t bank, char slot, uint8_t channel)
 #endif
 }
 
+bool ToneXUsbHost::sendControlChange(uint8_t control, uint8_t value, uint8_t channel) {
+#ifdef NATIVE_TEST
+    (void)control;
+    (void)value;
+    (void)channel;
+    return false;
+#else
+    if (!_connected || !_deviceHandle || !_midiEndpointOut) {
+        Serial.println("[USB] MIDI output is unavailable because its interface is not ready");
+        return false;
+    }
+
+    const ToneXHDLC::UsbMidiControlChange message =
+        ToneXHDLC::getUsbMidiControlChange(control, value, channel);
+    return submitMidiPacket(message.packet);
+#endif
+}
+
 bool ToneXUsbHost::startSync() {
 #ifdef NATIVE_TEST
     return false;

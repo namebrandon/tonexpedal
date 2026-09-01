@@ -9,6 +9,7 @@ const ROOT_DIR = path.join(__dirname, '..');
 const TOTAL_PRESETS = 150;
 const SLOTS = ['A', 'B', 'C'];
 const CONFIRMATION_MODES = new Set(['normal', 'drop', 'error']);
+const SUPPORTED_RIG_CONTROLS = new Set([14, 18, 75, 117, 122]);
 
 function validateWifiSettings(settings) {
     if (typeof settings.ssid !== 'string' || settings.ssid.length === 0) {
@@ -259,6 +260,23 @@ function createBridgeSimulator(options = {}) {
                 state.activePc = pc;
                 broadcast(statusMessage());
             }, confirmationDelayMs);
+            return;
+        }
+
+        if (message.action === 'midi_cc') {
+            const control = Number(message.cc);
+            const value = Number(message.value);
+            const channel = Number(message.channel);
+            if (!SUPPORTED_RIG_CONTROLS.has(control) || !Number.isInteger(value) || value < 0 || value > 127 ||
+                !Number.isInteger(channel) || channel < 0 || channel >= 16) {
+                sendError(socket, 'midi_invalid', 'Unsupported MIDI control, value, or channel', requestId);
+                return;
+            }
+            if (!state.tonexConnected) {
+                sendError(socket, 'midi_unavailable', 'The TONEX MIDI interface is not ready', requestId);
+                return;
+            }
+            send(socket, { event: 'midi_cc_accepted', cc: control, value, request_id: requestId });
             return;
         }
 

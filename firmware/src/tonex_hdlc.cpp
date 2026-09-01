@@ -261,4 +261,13 @@ namespace ToneXHDLC {
         packets.programChange[3] = 0x00;
         return packets;
     }
+
+    UsbMidiControlChange getUsbMidiControlChange(uint8_t control, uint8_t value, uint8_t channel) {
+        UsbMidiControlChange message = {};
+        message.packet[0] = 0x0B; // cable 0, Control Change
+        message.packet[1] = static_cast<uint8_t>(0xB0 | (channel & 0x0F));
+        message.packet[2] = control;
+        message.packet[3] = value;
+        return message;
+    }
 }

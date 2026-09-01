@@ -106,6 +106,18 @@ void WsBridge::sendMidiAccepted(uint32_t clientId, uint8_t pc, uint32_t requestI
     _ws.text(clientId, out.c_str());
 }
 
+void WsBridge::sendMidiControlAccepted(uint32_t clientId, uint8_t control, uint8_t value, uint32_t requestId) {
+    JsonDocument doc;
+    doc["event"] = "midi_cc_accepted";
+    doc["cc"] = control;
+    doc["value"] = value;
+    if (requestId > 0) doc["request_id"] = requestId;
+
+    std::string out;
+    serializeJson(doc, out);
+    _ws.text(clientId, out.c_str());
+}
+
 void WsBridge::sendError(uint32_t clientId, const char* code, const char* message, uint32_t requestId) {
     JsonDocument doc;
     doc["event"] = "error";
@@ -257,6 +269,32 @@ void WsBridge::processIncomingMessage(const std::string& jsonString, uint32_t cl
         uint8_t pc = ToneXHDLC::pcFromBankSlot(static_cast<uint8_t>(bank), slot);
 #ifndef NATIVE_TEST
         sendMidiAccepted(clientId, pc, requestId);
+#endif
+
+    } else if (strcmp(action, "midi_cc") == 0) {
+        const int control = doc["cc"] | -1;
+        const int value = doc["value"] | -1;
+        const int channel = doc["channel"] | -1;
+        const uint32_t requestId = doc["request_id"] | 0;
+        const bool supportedControl = control == 14 || control == 18 || control == 75 ||
+            control == 117 || control == 122;
+
+        if (!supportedControl || value < 0 || value > 127 || channel < 0 || channel >= 16) {
+#ifndef NATIVE_TEST
+            sendError(clientId, "midi_invalid", "Unsupported MIDI control, value, or channel", requestId);
+#endif
+            return;
+        }
+
+        if (!ToneX.sendControlChange(
+                static_cast<uint8_t>(control), static_cast<uint8_t>(value), static_cast<uint8_t>(channel))) {
+#ifndef NATIVE_TEST
+            sendError(clientId, "midi_unavailable", "The TONEX MIDI interface is not ready", requestId);
+#endif
+            return;
+        }
+#ifndef NATIVE_TEST
+        sendMidiControlAccepted(clientId, static_cast<uint8_t>(control), static_cast<uint8_t>(value), requestId);
 #endif
 
     } else if (strcmp(action, "status_request") == 0) {

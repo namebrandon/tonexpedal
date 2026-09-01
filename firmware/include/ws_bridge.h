@@ -30,6 +30,7 @@ private:
     AsyncWebSocket _ws;
     void sendStatus(uint32_t clientId, bool tonexConnected, int16_t activePc = -1);
     void sendMidiAccepted(uint32_t clientId, uint8_t pc, uint32_t requestId = 0);
+    void sendMidiControlAccepted(uint32_t clientId, uint8_t control, uint8_t value, uint32_t requestId = 0);
     void sendError(uint32_t clientId, const char* code, const char* message, uint32_t requestId = 0);
     void sendSyncStarted(uint32_t clientId, uint32_t requestId = 0);
 #endif

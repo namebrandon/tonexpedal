@@ -41,6 +41,7 @@ public:
 
     // MIDI
     bool sendBankSelectAndPC(uint8_t bank, char slot, uint8_t channel = 0);
+    bool sendControlChange(uint8_t control, uint8_t value, uint8_t channel = 0);
 
     // USB Sync (HDLC Presets Dump)
     bool startSync();
