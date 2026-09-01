@@ -711,6 +711,8 @@
                 <button id="exportJSON" class="sync-btn" data-i18n="exportButton" title="Export preset names to JSON">EXPORT</button>
                 <button id="importJSON" class="sync-btn" data-i18n="importButton" title="Import preset names from JSON">IMPORT</button>
                 <button id="exportDiagnostics" class="sync-btn" data-i18n="diagnosticsButton" title="Export diagnostic capture" hidden>DIAGNOSTICS</button>
+                <button id="stageMode" class="sync-btn stage-mode-btn" aria-pressed="false" data-i18n="stageMode">STAGE LOCK</button>
+                <button id="fullscreenToggle" class="icon-btn fullscreen-btn" aria-pressed="false" title="Enter fullscreen">⛶</button>
                 <button id="langToggle" class="icon-btn lang-btn" title="Switch language">EN</button>
                 <a href="docs/" target="_blank" class="icon-btn" title="Documentation">?</a>
             </div>
@@ -727,6 +729,7 @@
         <span class="health-chip" id="bridge-health"></span>
         <span class="health-chip" id="pedal-health"></span>
         <span class="health-chip" id="library-health"></span>
+        <span class="health-chip stage-health" id="stage-health"></span>
         <span class="preset-command-status" id="preset-command-status"></span>
     </div>
 
@@ -815,6 +818,14 @@
                 syncTitle: 'Synchroniser les noms de presets via USB',
                 cancelSync: 'ANNULER SYNC',
                 syncObserved: 'SYNC EN COURS',
+                stageMode: 'VERROU SCÈNE',
+                stageExit: 'QUITTER SCÈNE',
+                stageEdit: 'Scène : édition',
+                stageLocked: 'Scène : verrouillée',
+                stageAwake: 'Scène : active · écran éveillé',
+                stageWakeUnavailable: 'Scène : active · veille possible',
+                fullscreenEnter: 'Passer en plein écran',
+                fullscreenExit: 'Quitter le plein écran',
                 portOpening: 'Ouverture port...',
                 syncDone: 'Termin\u00e9! ',
                 syncPresetsRead: ' presets lus',
@@ -889,6 +900,14 @@
                 syncTitle: 'Sync preset names via USB',
                 cancelSync: 'CANCEL SYNC',
                 syncObserved: 'SYNC IN PROGRESS',
+                stageMode: 'STAGE LOCK',
+                stageExit: 'EXIT STAGE',
+                stageEdit: 'Stage: edit mode',
+                stageLocked: 'Stage: locked',
+                stageAwake: 'Stage: active · screen awake',
+                stageWakeUnavailable: 'Stage: active · screen may sleep',
+                fullscreenEnter: 'Enter fullscreen',
+                fullscreenExit: 'Exit fullscreen',
                 portOpening: 'Opening port...',
                 syncDone: 'Done! ',
                 syncPresetsRead: ' presets read',
@@ -984,6 +1003,7 @@
             updateActivePresetDisplay();
             updateOperatorHealth();
             updatePresetCommandStatus();
+            updateStageUi();
         }
 
         document.getElementById('langToggle').addEventListener('click', () => {
@@ -1045,6 +1065,11 @@
         let presetConfirmTimer = null;
         let presetRequestSequence = 0;
         let libraryFreshness = 'empty';
+        let stageModeActive = false;
+        let stageModePreference = false;
+        let stageWakeLock = null;
+        let stageWakeState = 'idle';
+        let libraryWasCollapsedBeforeStage = false;
         let presetCommandState = {
             activePc: -1,
             activeFreshness: 'unknown',
@@ -1106,13 +1131,16 @@
         // --- State ---
         let state = loadState();
         if (!state.presets) state.presets = {};
+        if (!state.ui) state.ui = {};
+        stageModePreference = state.ui.stageMode === true;
         libraryFreshness = Object.keys(state.presets).length > 0 ? 'cached' : 'empty';
 
         function defaultState() {
             return {
                 buttons: {},
                 midi: { device: '', channel: 0 },
-                presets: {}
+                presets: {},
+                ui: { stageMode: false }
             };
         }
 
@@ -1126,6 +1154,97 @@
 
         function saveState() {
             localStorage.setItem('tonex-state', JSON.stringify(state));
+        }
+
+        function stageShortcutIndex(key) {
+            return /^[1-9]$/.test(key) ? Number(key) - 1 : -1;
+        }
+
+        function updateStageUi() {
+            const stageButton = document.getElementById('stageMode');
+            const stageHealth = document.getElementById('stage-health');
+            const fullscreenButton = document.getElementById('fullscreenToggle');
+            if (!stageButton || !stageHealth || !fullscreenButton) return;
+
+            stageButton.textContent = stageModeActive ? t('stageExit') : t('stageMode');
+            stageButton.setAttribute('aria-pressed', String(stageModeActive));
+            stageButton.classList.toggle('active', stageModeActive);
+
+            stageHealth.dataset.state = stageModeActive ? 'ok' : '';
+            stageHealth.textContent = !stageModeActive ? t('stageEdit') :
+                (stageWakeState === 'active' ? t('stageAwake') :
+                    (stageWakeState === 'unavailable' || stageWakeState === 'error' ?
+                        t('stageWakeUnavailable') : t('stageLocked')));
+
+            const isFullscreen = !!document.fullscreenElement;
+            fullscreenButton.setAttribute('aria-pressed', String(isFullscreen));
+            fullscreenButton.classList.toggle('active', isFullscreen);
+            fullscreenButton.title = t(isFullscreen ? 'fullscreenExit' : 'fullscreenEnter');
+        }
+
+        async function requestStageWakeLock() {
+            if (!stageModeActive || document.hidden || stageWakeLock) return;
+            if (!('wakeLock' in navigator)) {
+                stageWakeState = 'unavailable';
+                updateStageUi();
+                return;
+            }
+
+            stageWakeState = 'requesting';
+            updateStageUi();
+            try {
+                const lock = await navigator.wakeLock.request('screen');
+                if (!stageModeActive) {
+                    await lock.release();
+                    return;
+                }
+                stageWakeLock = lock;
+                stageWakeState = 'active';
+                lock.addEventListener('release', () => {
+                    if (stageWakeLock === lock) stageWakeLock = null;
+                    stageWakeState = 'idle';
+                    updateStageUi();
+                });
+            } catch (error) {
+                stageWakeState = 'error';
+                recordDiagnosticEvent('stage_wake_lock_failed', { message: error.message });
+            }
+            updateStageUi();
+        }
+
+        async function releaseStageWakeLock() {
+            const lock = stageWakeLock;
+            stageWakeLock = null;
+            stageWakeState = 'idle';
+            if (lock) {
+                try { await lock.release(); } catch (error) {}
+            }
+            updateStageUi();
+        }
+
+        function setStageMode(enabled, persist = true) {
+            const next = !!enabled;
+            if (next && !stageModeActive) {
+                libraryWasCollapsedBeforeStage = mainLayout.classList.contains('collapsed');
+                closeEditModal();
+            }
+            stageModeActive = next;
+            document.body.classList.toggle('stage-mode', stageModeActive);
+            if (stageModeActive) {
+                mainLayout.classList.add('collapsed');
+                requestStageWakeLock();
+            } else {
+                if (!libraryWasCollapsedBeforeStage) mainLayout.classList.remove('collapsed');
+                releaseStageWakeLock();
+                if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+            }
+            if (persist) {
+                state.ui.stageMode = stageModeActive;
+                saveState();
+            }
+            renderGrid();
+            renderLibrary();
+            updateStageUi();
         }
 
         function getPresetKey(bank, slot) {
@@ -1873,6 +1992,8 @@
 
                     const row = document.createElement('div');
                     row.className = 'preset-row';
+                    row.tabIndex = 0;
+                    row.setAttribute('role', 'button');
                     if (pc === activePresetPC) {
                         row.classList.add('active');
                         if (presetCommandState.activeFreshness === 'stale') row.classList.add('stale');
@@ -1881,7 +2002,7 @@
                     if (!presetCommandState.pending &&
                         ['unconfirmed', 'timed_out', 'failed'].includes(presetCommandState.commandStatus) &&
                         pc === presetCommandState.lastRequestedPc) row.classList.add('requested');
-                    row.draggable = true;
+                    row.draggable = !stageModeActive;
                     row.dataset.source = 'library';
                     row.dataset.bank = bank;
                     row.dataset.slot = slot;
@@ -1891,12 +2012,23 @@
                         bankSelectAndPC(bank, slot);
                     });
 
+                    row.addEventListener('keydown', (e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                        e.preventDefault();
+                        bankSelectAndPC(bank, slot);
+                    });
+
                     row.addEventListener('dblclick', (e) => {
                         e.preventDefault();
+                        if (stageModeActive) return;
                         openEditModal('library', bank, slot);
                     });
 
                     row.addEventListener('dragstart', (e) => {
+                        if (stageModeActive) {
+                            e.preventDefault();
+                            return;
+                        }
                         e.dataTransfer.setData('text/plain', JSON.stringify({
                             source: 'library',
                             bank: bank,
@@ -1948,7 +2080,8 @@
             grid.innerHTML = '';
 
             for (let i = 0; i < 9; i++) {
-                const btn = document.createElement('div');
+                const btn = document.createElement('button');
+                btn.type = 'button';
                 btn.className = 'grid-btn';
                 btn.dataset.slotIndex = i;
                 btn.dataset.pad = String(i + 1).padStart(2, '0');
@@ -1975,7 +2108,8 @@
                     if (!presetCommandState.pending &&
                         ['unconfirmed', 'timed_out', 'failed'].includes(presetCommandState.commandStatus) &&
                         assignedPc === presetCommandState.lastRequestedPc) btn.classList.add('requested');
-                    btn.draggable = true;
+                    btn.draggable = !stageModeActive;
+                    btn.setAttribute('aria-label', `Pad ${i + 1}: ${String(assigned.bank).padStart(2, '0')}${assigned.slot}, ${info.name}`);
 
                     btn.addEventListener('click', (e) => {
                         if (justDragged) return;
@@ -1984,10 +2118,15 @@
 
                     btn.addEventListener('dblclick', (e) => {
                         e.preventDefault();
+                        if (stageModeActive) return;
                         openEditModal('grid', null, null, i);
                     });
 
                     btn.addEventListener('dragstart', (e) => {
+                        if (stageModeActive) {
+                            e.preventDefault();
+                            return;
+                        }
                         e.dataTransfer.setData('text/plain', JSON.stringify({
                             source: 'grid',
                             buttonIndex: i,
@@ -2003,10 +2142,12 @@
 
                 } else {
                     btn.classList.add('empty');
+                    btn.tabIndex = -1;
                     btn.innerHTML = '<span class="empty-label">' + t('empty') + '</span>';
                 }
 
                 btn.addEventListener('dragover', (e) => {
+                    if (stageModeActive) return;
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                     btn.classList.add('drag-over');
@@ -2015,6 +2156,7 @@
                 btn.addEventListener('dragleave', () => btn.classList.remove('drag-over'));
 
                 btn.addEventListener('drop', (e) => {
+                    if (stageModeActive) return;
                     e.preventDefault();
                     btn.classList.remove('drag-over');
                     try {
@@ -2028,6 +2170,7 @@
         }
 
         function handleDrop(data, targetIndex) {
+            if (stageModeActive) return;
             justDragged = true;
             setTimeout(() => justDragged = false, 100);
             if (data.source === 'library') {
@@ -2060,6 +2203,7 @@
             const trash = document.getElementById('trash-zone');
 
             trash.addEventListener('dragover', (e) => {
+                if (stageModeActive) return;
                 e.preventDefault();
                 try {
                     const raw = e.dataTransfer.types.includes('text/plain');
@@ -2073,6 +2217,7 @@
             trash.addEventListener('dragleave', () => trash.classList.remove('drag-over'));
 
             trash.addEventListener('drop', (e) => {
+                if (stageModeActive) return;
                 e.preventDefault();
                 trash.classList.remove('drag-over');
                 try {
@@ -2088,6 +2233,7 @@
 
         // --- Edit Modal ---
         function openEditModal(source, bank, slot, buttonIndex) {
+            if (stageModeActive) return;
             const overlay = document.getElementById('edit-overlay');
             const title = document.getElementById('edit-title');
             const nameInput = document.getElementById('edit-name');
@@ -2838,9 +2984,56 @@
         const mainLayout = document.getElementById('main-layout');
         if (localStorage.getItem('tonex-library-collapsed') === 'true') mainLayout.classList.add('collapsed');
         toggleBtn.addEventListener('click', () => {
+            if (stageModeActive) return;
             mainLayout.classList.toggle('collapsed');
             localStorage.setItem('tonex-library-collapsed', mainLayout.classList.contains('collapsed'));
         });
+
+        // --- Stage Operation ---
+        const stageButton = document.getElementById('stageMode');
+        const fullscreenButton = document.getElementById('fullscreenToggle');
+
+        stageButton.addEventListener('click', () => setStageMode(!stageModeActive));
+
+        if (!document.documentElement.requestFullscreen) {
+            fullscreenButton.hidden = true;
+        } else {
+            fullscreenButton.addEventListener('click', async () => {
+                try {
+                    if (document.fullscreenElement) {
+                        await document.exitFullscreen();
+                    } else {
+                        if (!stageModeActive) setStageMode(true);
+                        await document.documentElement.requestFullscreen();
+                    }
+                } catch (error) {
+                    recordDiagnosticEvent('fullscreen_failed', { message: error.message });
+                }
+                updateStageUi();
+            });
+            document.addEventListener('fullscreenchange', updateStageUi);
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+            const target = event.target;
+            if (target && (target.matches('input, select, textarea') || target.isContentEditable)) return;
+            if (document.getElementById('edit-overlay').style.display !== 'none') return;
+
+            const padIndex = stageShortcutIndex(event.key);
+            if (padIndex < 0) return;
+            const assigned = state.buttons[padIndex];
+            if (!assigned) return;
+            event.preventDefault();
+            bankSelectAndPC(assigned.bank, assigned.slot);
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && stageModeActive && !stageWakeLock) requestStageWakeLock();
+        });
+
+        if (stageModePreference) setStageMode(true, false);
+        else updateStageUi();
 
         // --- Init ---
         document.getElementById('search-box').addEventListener('input', renderLibrary);

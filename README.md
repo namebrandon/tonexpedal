@@ -115,10 +115,20 @@ JSON format:
 ### 3×3 Grid
 
 - **Single click** on a button → sends Bank Select + Program Change to the pedal
+- **Keys 1–9** → activate the corresponding performance pad without moving focus
 - **Drag** a preset from the library → assigns to the button
 - **Drag** a button to another → swaps positions
 - **Drag** a button to the trash → clears the button
 - **Double-click** → opens edit modal (name, AMP, CAB)
+
+### Stage Lock
+
+Use **STAGE LOCK** after preparing the nine performance pads. It collapses the
+library, disables editing and drag/drop, enlarges the performance surface on
+phones, and requests a screen wake lock where the browser supports it. The stage
+status chip reports whether the screen is being held awake. The fullscreen button
+enters Stage Lock automatically; **EXIT STAGE** restores editing and the previous
+library layout.
 
 ### Library
 

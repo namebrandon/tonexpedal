@@ -623,6 +623,9 @@ header h1 strong {
 }
 
 .grid-btn {
+    appearance: none;
+    font: inherit;
+    color: inherit;
     min-width: 0;
     min-height: 82px;
     padding: 18px 15px 13px;
@@ -636,6 +639,57 @@ header h1 strong {
     border-radius: var(--radius);
     box-shadow: inset 0 1px rgba(255, 255, 255, 0.025), var(--shadow);
     transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.stage-mode-btn.active,
+.fullscreen-btn.active {
+    border-color: var(--success);
+    color: var(--success);
+}
+
+body.stage-mode .midi-controls,
+body.stage-mode #syncUSB,
+body.stage-mode #exportJSON,
+body.stage-mode #importJSON,
+body.stage-mode #exportDiagnostics,
+body.stage-mode .library-panel,
+body.stage-mode .library-toggle {
+    display: none;
+}
+
+body.stage-mode header {
+    min-height: 58px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+body.stage-mode .brand-mark {
+    width: 36px;
+    height: 36px;
+}
+
+body.stage-mode .header-right {
+    margin-left: auto;
+}
+
+body.stage-mode .grid-btn {
+    min-height: 96px;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+body.stage-mode .grid-btn:hover {
+    transform: none;
+}
+
+body.stage-mode footer span:first-child {
+    display: none;
+}
+
+body.stage-mode footer {
+    justify-content: flex-end;
 }
 
 .grid-btn::before {
@@ -1042,6 +1096,72 @@ footer {
         justify-content: center;
         gap: 4px;
         box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.32);
+    }
+
+    body.stage-mode {
+        height: 100vh;
+        height: 100dvh;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    body.stage-mode header {
+        min-height: 54px;
+        padding: 8px 10px;
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+    }
+
+    body.stage-mode .brand-copy,
+    body.stage-mode .midi-status,
+    body.stage-mode #langToggle,
+    body.stage-mode .header-actions > a {
+        display: none;
+    }
+
+    body.stage-mode .brand-block {
+        min-width: 38px;
+    }
+
+    body.stage-mode .header-right,
+    body.stage-mode .header-actions {
+        width: auto;
+        margin-left: auto;
+        display: flex;
+        gap: 6px;
+        overflow: visible;
+        padding: 0;
+    }
+
+    body.stage-mode .main-layout,
+    body.stage-mode .grid-panel,
+    body.stage-mode .grid-shell {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    body.stage-mode .performance-heading {
+        min-height: 48px;
+        flex-basis: 48px;
+    }
+
+    body.stage-mode .preset-grid {
+        min-height: 0;
+        grid-template-rows: repeat(3, minmax(0, 1fr));
+    }
+
+    body.stage-mode .grid-btn {
+        min-height: 0;
+    }
+
+    body.stage-mode footer {
+        position: static;
+        min-height: 34px;
+        padding: 5px 10px;
+        flex-direction: row;
+        align-items: center;
     }
 }
 
