@@ -23,6 +23,34 @@ class HardwareProbeProtocolTests(unittest.TestCase):
         with self.assertRaises(probe.ProtocolError):
             probe.deframe(bytes(corrupted))
 
+    def test_stream_decoder_reassembles_every_byte_fragmentation(self):
+        payload = bytes([0x10, 0x7D, 0x7E, 0x20])
+        decoder = probe.HdlcStreamDecoder()
+        decoded = []
+        for byte in probe.build_frame(payload):
+            decoded.extend(decoder.feed(bytes([byte])))
+        self.assertEqual(decoded, [payload])
+
+    def test_stream_decoder_preserves_back_to_back_frames(self):
+        first = b"first"
+        second = b"second"
+        decoder = probe.HdlcStreamDecoder()
+        decoded = decoder.feed(probe.build_frame(first) + probe.build_frame(second))
+        self.assertEqual(decoded, [first, second])
+
+    def test_stream_decoder_recovers_after_corrupt_frame(self):
+        corrupt = bytearray(probe.build_frame(b"corrupt"))
+        corrupt[-2] ^= 0x01
+        decoder = probe.HdlcStreamDecoder()
+        decoded = decoder.feed(bytes(corrupt) + probe.build_frame(b"valid"))
+        self.assertEqual(decoded, [b"valid"])
+        self.assertIsInstance(decoder.last_protocol_error, probe.ProtocolError)
+
+    def test_stream_decoder_discards_oversized_partial_frame(self):
+        decoder = probe.HdlcStreamDecoder(max_frame_bytes=8)
+        self.assertEqual(decoder.feed(b"\x7e" + b"x" * 9), [])
+        self.assertEqual(decoder.feed(probe.build_frame(b"valid")), [b"valid"])
+
     def test_preset_request_boundary_encoding(self):
         preset_127 = probe.create_preset_request(127)
         preset_128 = probe.create_preset_request(128)

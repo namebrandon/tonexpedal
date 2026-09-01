@@ -12,7 +12,7 @@ import select
 import struct
 import sys
 import time
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import asdict, dataclass
 from typing import Iterable, Optional, Sequence
 
@@ -26,6 +26,7 @@ CAB_TYPE_INDEX = 23
 FLOAT_SIZE = 5
 TOTAL_PRESETS = 150
 DEFAULT_PRESETS = (0, 127, 128, 149)
+MAX_FRAME_BYTES = 16384
 
 
 class ProbeError(RuntimeError):
@@ -94,6 +95,32 @@ def deframe(frame: bytes) -> bytes:
             f"HDLC CRC mismatch: received 0x{received_crc:04x}, expected 0x{expected_crc:04x}"
         )
     return payload
+
+
+class HdlcStreamDecoder:
+    """Recover complete HDLC payloads from arbitrarily chunked serial input."""
+
+    def __init__(self, max_frame_bytes: int = MAX_FRAME_BYTES):
+        self.max_frame_bytes = max_frame_bytes
+        self.pending = bytearray()
+        self.last_protocol_error: Optional[ProtocolError] = None
+
+    def feed(self, chunk: bytes) -> list[bytes]:
+        payloads = []
+        for byte in chunk:
+            if byte == 0x7E:
+                if len(self.pending) > 1:
+                    self.pending.append(byte)
+                    try:
+                        payloads.append(deframe(bytes(self.pending)))
+                    except ProtocolError as exc:
+                        self.last_protocol_error = exc
+                self.pending = bytearray([0x7E])
+            elif self.pending:
+                self.pending.append(byte)
+                if len(self.pending) > self.max_frame_bytes:
+                    self.pending.clear()
+        return payloads
 
 
 def create_preset_request(index: int) -> bytes:
@@ -169,6 +196,8 @@ class PosixSerialTransport:
         self.timeout = timeout
         self.fd: Optional[int] = None
         self.original_attributes = None
+        self.decoder = HdlcStreamDecoder()
+        self.decoded_payloads = deque()
 
     def __enter__(self) -> "PosixSerialTransport":
         if os.name != "posix":
@@ -197,6 +226,8 @@ class PosixSerialTransport:
             attributes[6][termios.VTIME] = 0
             termios.tcsetattr(self.fd, termios.TCSANOW, attributes)
             termios.tcflush(self.fd, termios.TCIOFLUSH)
+            self.decoder = HdlcStreamDecoder()
+            self.decoded_payloads.clear()
             time.sleep(0.5)
         except Exception:
             os.close(self.fd)
@@ -234,9 +265,10 @@ class PosixSerialTransport:
         if self.fd is None:
             raise ProbeError("Serial transport is not open")
 
+        if self.decoded_payloads:
+            return self.decoded_payloads.popleft()
+
         deadline = time.monotonic() + self.timeout
-        pending = bytearray()
-        last_protocol_error: Optional[ProtocolError] = None
         while time.monotonic() < deadline:
             remaining = max(0.0, deadline - time.monotonic())
             readable, _, _ = select.select([self.fd], [], [], remaining)
@@ -249,22 +281,14 @@ class PosixSerialTransport:
             except OSError as exc:
                 raise ProbeError(f"Could not read {label}: {exc}") from exc
 
-            for byte in chunk:
-                if byte == 0x7E:
-                    if len(pending) > 1:
-                        pending.append(byte)
-                        try:
-                            return deframe(bytes(pending))
-                        except ProtocolError as exc:
-                            last_protocol_error = exc
-                    pending = bytearray([0x7E])
-                elif pending:
-                    pending.append(byte)
-                    if len(pending) > 16384:
-                        pending.clear()
+            self.decoded_payloads.extend(self.decoder.feed(chunk))
+            if self.decoded_payloads:
+                return self.decoded_payloads.popleft()
 
-        if last_protocol_error is not None:
-            raise ProtocolError(f"No valid response to {label}: {last_protocol_error}")
+        if self.decoder.last_protocol_error is not None:
+            raise ProtocolError(
+                f"No valid response to {label}: {self.decoder.last_protocol_error}"
+            )
         raise ProbeError(f"Timed out waiting for {label}")
 
 
