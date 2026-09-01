@@ -50,6 +50,14 @@ npm run hardware:probe -- --listen-seconds 15
 
 Short events are shown in full; longer events are limited to a 12-byte structural prefix so preset content is not exposed. Full preset events are decoded to a `preset_index` without printing their names or parameter data.
 
+For a live, timestamped capture of one physical-control phase, run:
+
+```bash
+npm run hardware:control-capture -- --label bypass_on_off --seconds 20
+```
+
+The recorder announces `capture_ready=true`, prints each event as it arrives, and reports a privacy-safe payload fingerprint. Use separate labeled runs for preset forward/backward, A/B/C, bypass, unconfirmed bank navigation, and bank selection confirmed with A/B/C.
+
 ## 1. Original Direct-MIDI Path
 
 When the current preset index is known, the macOS boundary probe can exercise all MIDI encoding boundaries and restore that preset even if a send fails:
@@ -156,6 +164,16 @@ The same pedal also completed a restore-protected CoreMIDI boundary probe from a
 - A burst run repeated that boundary sequence three times during one full read; all `150/150` responses and all 15 active events arrived in order with no drops.
 - The deterministic rapid-change harness delivered all `151/151` CDC events in exact order during 150 changes at 5 Hz, including the final restore to index 0. It reported no missing, excess, malformed, unrelated, or CRC-invalid frames.
 - A near-throughput run delivered all `101/101` CDC events in exact order during 100 changes at 10 Hz, again with no protocol errors and with the final restore to index 0 confirmed after a four-second drain.
+
+Physical-control captures on the same pedal established the following unsolicited CDC behavior:
+
+- A five-second idle baseline produced no frames.
+- Preset forward from index 0 emitted one active-preset event for index 1; preset backward emitted one for index 0.
+- Footswitches B, C, and A emitted one active-preset event each for indices 1, 2, and 0.
+- Engaging and disengaging bypass produced no unsolicited CDC frame.
+- Bank up/down without choosing a slot produced no unsolicited CDC frame.
+- Bank up followed by A emitted index 3 (`1.AA`); bank down followed by A emitted index 0 (`0.AA`). The bank-navigation gestures themselves emitted nothing.
+- All observed preset-selection messages used the existing `04 02 b9 03 00` active-preset body prefix. No additional unsolicited control-message type was found, and every capture completed with zero CRC errors.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
 

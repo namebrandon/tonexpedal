@@ -177,6 +177,8 @@ Diffusé lors de la connexion du client, de la connexion/déconnexion USB ou d'u
 
 Les champs du preset actif sont omis tant que le pont n'a pas observé d'événement de preset. Cela évite de supposer à tort le preset 0 lors d'une nouvelle connexion. Les changements effectués depuis les footswitches, un autre contrôleur MIDI ou l'interface Web sont ensuite reflétés dans tous les navigateurs connectés.
 
+Les essais directs de la pédale ont montré que les commandes preset suivant/précédent, la sélection A/B/C et une sélection de bank confirmée avec A/B/C émettent toutes cet événement de preset actif. Le bypass et la navigation dans les banks sans confirmation n'émettent aucune trame CDC spontanée ; le pont ne peut donc pas refléter passivement ces états physiques transitoires pour le moment.
+
 Pendant une synchronisation de la bibliothèque, les événements non sollicités du preset actif sont transmis immédiatement sans consommer la réponse attendue. Seule une réponse sollicitée portant l'index attendu fait avancer la machine d'état ; une réponse inattendue ou discordante interrompt explicitement la synchronisation.
 
 #### 2. Progression de la Synchronisation

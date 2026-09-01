@@ -185,6 +185,8 @@ Broadcasted on client connect, USB connect/disconnect, or a confirmed unsolicite
 
 The active-preset fields are omitted until the bridge has observed a preset event. This prevents a new connection from incorrectly assuming preset 0. Changes made from the pedal footswitches, another MIDI controller, or the web UI are then reflected in every connected browser.
 
+Direct pedal testing found that preset forward/backward, A/B/C selection, and a bank selection confirmed with A/B/C all emit this active-preset event. Bypass toggles and unconfirmed bank browsing emit no unsolicited CDC frame, so those transient physical states cannot currently be mirrored passively by the bridge.
+
 During a library sync, unsolicited active-preset events are dispatched immediately without consuming the pending request. Only a solicited response carrying the expected preset index advances the sync state machine; unexpected or mismatched responses fail the sync explicitly.
 
 #### 2. Sync Progress

@@ -195,6 +195,14 @@ npm run hardware:midi-stress -- --restore-index 0
 
 The default sends 150 changes at 5 Hz over 30 seconds and fails on missing, excess, reordered, malformed, or CRC-invalid events. It also requires CDC to confirm the final restored index. This command changes the audible preset, so reduce monitor volume before running it.
 
+To capture timestamped CDC fingerprints while testing one physical pedal action, run:
+
+```bash
+npm run hardware:control-capture -- --label footswitch_b --seconds 20
+```
+
+The recorder prints events live and limits long messages to structural metadata, a hash fingerprint, and a short prefix. It does not expose preset names or parameter data.
+
 ### MIDI Protocol
 
 The TONEX Pedal uses 50 banks × 3 slots (A/B/C) = 150 presets.
