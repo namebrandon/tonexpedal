@@ -58,6 +58,18 @@ npm run hardware:control-capture -- --label bypass_on_off --seconds 20
 
 The recorder announces `capture_ready=true`, prints each event as it arrives, and reports a privacy-safe payload fingerprint. Use separate labeled runs for preset forward/backward, A/B/C, bypass, unconfirmed bank navigation, and bank selection confirmed with A/B/C.
 
+To test whether a physical state appears in the known read commands, poll State and optionally fingerprint the known active preset response:
+
+```bash
+npm run hardware:state-watch -- --seconds 40 --interval 0.5 --preset-index 0
+```
+
+The [official TONEX Pedal MIDI specification](https://g1.ikmultimedia.com/html/Manuals/TONEXPedal/TONEX_Pedal_User_Manual_English.pdf) assigns preset off/on to CC12. On macOS, exercise it with an explicit restore value:
+
+```bash
+npm run hardware:midi-cc-probe -- --controller 12 --values 0,127 --restore-value 127
+```
+
 ## 1. Original Direct-MIDI Path
 
 When the current preset index is known, the macOS boundary probe can exercise all MIDI encoding boundaries and restore that preset even if a send fails:
@@ -174,6 +186,14 @@ Physical-control captures on the same pedal established the following unsolicite
 - Bank up/down without choosing a slot produced no unsolicited CDC frame.
 - Bank up followed by A emitted index 3 (`1.AA`); bank down followed by A emitted index 0 (`0.AA`). The bank-navigation gestures themselves emitted nothing.
 - All observed preset-selection messages used the existing `04 02 b9 03 00` active-preset body prefix. No additional unsolicited control-message type was found, and every capture completed with zero CRC errors.
+
+Focused bypass-state testing established a stricter limitation:
+
+- Across one 40-second bypass-off/on/off cycle, all 79 State samples were the identical 10-byte payload `b9 03 81 01 02 03 10 b9 01 00` (`state_code=0`).
+- Across a second cycle, all 77 State samples and all 77 full responses for active preset index 0 retained one fingerprint each. Bypass therefore does not modify the known State or preset-read responses.
+- Sending the documented CC12 values 0 and 127, followed by a restore value of 127, produced no unsolicited CDC acknowledgement.
+- With the pedal temporarily configured for `MIDI.THRU=MERGE`, a physical bypass-off/on cycle produced no USB-MIDI messages; the setting was then restored to `OFF`.
+- The bridge can command bypass through CC12 in a future feature, but cannot confirm or track physical bypass from any currently observed USB response. Do not expose a definitive bypass status until a feedback mechanism is discovered.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
 

@@ -203,6 +203,18 @@ npm run hardware:control-capture -- --label footswitch_b --seconds 20
 
 The recorder prints events live and limits long messages to structural metadata, a hash fingerprint, and a short prefix. It does not expose preset names or parameter data.
 
+To poll the short State response and optionally fingerprint a known active preset while testing bypass:
+
+```bash
+npm run hardware:state-watch -- --seconds 30 --preset-index 0
+```
+
+The pedal accepts preset bypass control through MIDI CC12 (`0` = bypassed, `127` = active), which can be exercised with a restore-protected probe:
+
+```bash
+npm run hardware:midi-cc-probe -- --controller 12 --values 0,127 --restore-value 127
+```
+
 ### MIDI Protocol
 
 The TONEX Pedal uses 50 banks × 3 slots (A/B/C) = 150 presets.
