@@ -223,6 +223,13 @@ Focused bypass-state testing established a stricter limitation:
 - With the pedal temporarily configured for `MIDI.THRU=MERGE`, a physical bypass-off/on cycle produced no USB-MIDI messages; the setting was then restored to `OFF`.
 - The bridge can command bypass through CC12 in a future feature, but cannot confirm or track physical bypass from any currently observed USB response. Do not expose a definitive bypass status until a feedback mechanism is discovered.
 
+Focused cab-simulation testing established a separate limitation:
+
+- A physical CAB enabled → disabled → enabled cycle emitted no unsolicited CDC frames during a 120-second, read-only capture.
+- During a second physical CAB enabled → disabled → enabled cycle, 146 State responses and 146 read-only preset-0 responses retained one fingerprint each; neither known response carries the CAB state.
+- The community-proposed `CC117` Cab Sim Bypass candidate was sent directly through CoreMIDI as `127` followed by `0`, with a final restore to `0`. macOS reported successful delivery, but the full-size TONEX Pedal showed no CAB-state change during either value.
+- Therefore, Cab Simulation remote disable is **not validated** for this pedal. Keep the browser CAB control unavailable and do not treat `CC117` as a supported Pedal command. Discovering an alternative requires a trace of TONEX Editor traffic while it changes the same setting, or an IK Multimedia Pedal-specific protocol reference.
+
 Focused global-setting capture established a separate live-update message family:
 
 - Changing and restoring the Global Settings **Input Trim** value emitted a 25-frame burst of 3,552-byte unsolicited CDC payloads, each with zero CRC errors. This is distinct from the 1,189-byte active-preset event family.
