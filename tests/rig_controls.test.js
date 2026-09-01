@@ -9,19 +9,21 @@ for (const frontendPath of ['index.html', 'firmware/data/index.html']) {
     describe(`Rig Controls UI in ${frontendPath}`, () => {
         const frontend = fs.readFileSync(path.join(rootDir, frontendPath), 'utf8');
 
-        it('presents the four requested switching controls and a master volume slider', () => {
-            for (const control of ['gate', 'compressor', 'reverb', 'cab']) {
+        it('presents the three documented switching controls and a model-volume slider', () => {
+            for (const control of ['gate', 'compressor', 'reverb']) {
                 assert.match(frontend, new RegExp(`data-rig-control="${control}"`));
             }
-            assert.match(frontend, /id="rig-master-volume" type="range" min="0" max="127"/);
+            assert.match(frontend, /rigCabUnavailable/);
+            assert.match(frontend, /id="rig-model-volume" type="range" min="0" max="127"/);
         });
 
-        it('uses the documented MIDI CC mapping and preserves cab-bypass polarity', () => {
+        it('uses only MIDI CCs documented for TONEX Pedal', () => {
             assert.match(frontend, /gate: \{ cc: 14,/);
             assert.match(frontend, /compressor: \{ cc: 18,/);
             assert.match(frontend, /reverb: \{ cc: 75,/);
-            assert.match(frontend, /cab: \{ cc: 117,[\s\S]*?inverted: true/);
-            assert.match(frontend, /volume: \{ cc: 122,/);
+            assert.match(frontend, /volume: \{ cc: 103,/);
+            assert.doesNotMatch(frontend, /cc: 117/);
+            assert.doesNotMatch(frontend, /cc: 122/);
         });
 
         it('rate-limits volume changes and does not claim a read-back state', () => {
@@ -45,7 +47,7 @@ describe('Rig control bridge contract', () => {
     });
 
     it('limits firmware controls to the Rig Controls whitelist', () => {
-        for (const control of [14, 18, 75, 117, 122]) {
+        for (const control of [14, 18, 75, 103]) {
             assert.match(firmware, new RegExp(`control == ${control}`));
         }
         assert.match(firmware, /Unsupported MIDI control, value, or channel/);

@@ -783,19 +783,19 @@
                             <button class="rig-toggle" type="button" data-rig-control="reverb" aria-pressed="false">
                                 <span data-i18n="rigReverb">Reverb</span><span class="rig-toggle-state">—</span>
                             </button>
-                            <button class="rig-toggle" type="button" data-rig-control="cab" aria-pressed="false">
-                                <span data-i18n="rigCab">Cab simulation</span><span class="rig-toggle-state">—</span>
-                            </button>
+                            <div class="rig-unavailable-control">
+                                <span data-i18n="rigCab">Cab simulation</span><span data-i18n="rigCabUnavailable">NOT AVAILABLE</span>
+                            </div>
                         </div>
                         <div class="rig-volume-control">
                             <div class="rig-volume-label">
-                                <label for="rig-master-volume" data-i18n="rigMasterVolume">Master volume</label>
-                                <output id="rig-master-volume-value">—</output>
+                                <label for="rig-model-volume" data-i18n="rigModelVolume">Model volume</label>
+                                <output id="rig-model-volume-value">—</output>
                             </div>
-                            <input id="rig-master-volume" type="range" min="0" max="127" value="100" aria-describedby="rig-control-note">
+                            <input id="rig-model-volume" type="range" min="0" max="127" value="100" aria-describedby="rig-control-note">
                             <div class="rig-volume-scale"><span>0</span><span>127</span></div>
                         </div>
-                        <p class="rig-control-note" id="rig-control-note" data-i18n="rigControlNote">Shows the last command sent; pedal state is not read back.</p>
+                        <p class="rig-control-note" id="rig-control-note" data-i18n="rigControlNote">Model Volume is per-preset. Shows the last command sent; pedal state is not read back.</p>
                         <p class="rig-control-status" id="rig-control-status" aria-live="polite"></p>
                     </aside>
                 </div>
@@ -917,8 +917,9 @@
                 rigCompressor: 'Compresseur',
                 rigReverb: 'Réverbération',
                 rigCab: 'Simulation cab',
-                rigMasterVolume: 'Volume master',
-                rigControlNote: 'Affiche la dernière commande envoyée ; l’état de la pédale n’est pas relu.',
+                rigCabUnavailable: 'NON DISPONIBLE',
+                rigModelVolume: 'Volume du modèle',
+                rigControlNote: 'Le volume du modèle est par preset. Affiche la dernière commande envoyée ; l’état de la pédale n’est pas relu.',
                 rigStateOn: 'ACTIVÉ',
                 rigStateOff: 'DÉSACTIVÉ',
                 rigStateUnknown: '—',
@@ -1015,8 +1016,9 @@
                 rigCompressor: 'Compressor',
                 rigReverb: 'Reverb',
                 rigCab: 'Cab simulation',
-                rigMasterVolume: 'Master volume',
-                rigControlNote: 'Shows the last command sent; pedal state is not read back.',
+                rigCabUnavailable: 'NOT AVAILABLE',
+                rigModelVolume: 'Model volume',
+                rigControlNote: 'Model Volume is per-preset. Shows the last command sent; pedal state is not read back.',
                 rigStateOn: 'ON',
                 rigStateOff: 'OFF',
                 rigStateUnknown: '—',
@@ -1098,9 +1100,7 @@
             gate: { cc: 14, label: 'rigGate' },
             compressor: { cc: 18, label: 'rigCompressor' },
             reverb: { cc: 75, label: 'rigReverb' },
-            // CC 117 is a bypass command: 0 enables the cabinet and 127 bypasses it.
-            cab: { cc: 117, label: 'rigCab', inverted: true },
-            volume: { cc: 122, label: 'rigMasterVolume' }
+            volume: { cc: 103, label: 'rigModelVolume' }
         });
         const diagnosticsEnabled = new URLSearchParams(window.location.search).get('debug') === '1';
         const diagnosticStartedAt = performance.now();
@@ -1497,8 +1497,8 @@
             });
 
             const volume = rigCommandState.controls.volume;
-            const slider = document.getElementById('rig-master-volume');
-            const output = document.getElementById('rig-master-volume-value');
+            const slider = document.getElementById('rig-model-volume');
+            const output = document.getElementById('rig-model-volume-value');
             slider.disabled = !canSend;
             if (volume.value === null) {
                 output.textContent = t('rigStateUnknown');
@@ -1602,7 +1602,7 @@
                     sendRigControl(name, value);
                 });
             });
-            const volume = document.getElementById('rig-master-volume');
+            const volume = document.getElementById('rig-model-volume');
             volume.addEventListener('input', () => queueRigVolume(Number(volume.value)));
             volume.addEventListener('change', () => {
                 if (rigVolumeTimer) {

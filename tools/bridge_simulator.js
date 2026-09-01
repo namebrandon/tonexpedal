@@ -9,7 +9,7 @@ const ROOT_DIR = path.join(__dirname, '..');
 const TOTAL_PRESETS = 150;
 const SLOTS = ['A', 'B', 'C'];
 const CONFIRMATION_MODES = new Set(['normal', 'drop', 'error']);
-const SUPPORTED_RIG_CONTROLS = new Set([14, 18, 75, 117, 122]);
+const SUPPORTED_RIG_CONTROLS = new Set([14, 18, 75, 103]);
 
 function validateWifiSettings(settings) {
     if (typeof settings.ssid !== 'string' || settings.ssid.length === 0) {

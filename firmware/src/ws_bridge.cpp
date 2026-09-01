@@ -276,8 +276,7 @@ void WsBridge::processIncomingMessage(const std::string& jsonString, uint32_t cl
         const int value = doc["value"] | -1;
         const int channel = doc["channel"] | -1;
         const uint32_t requestId = doc["request_id"] | 0;
-        const bool supportedControl = control == 14 || control == 18 || control == 75 ||
-            control == 117 || control == 122;
+        const bool supportedControl = control == 14 || control == 18 || control == 75 || control == 103;
 
         if (!supportedControl || value < 0 || value > 127 || channel < 0 || channel >= 16) {
 #ifndef NATIVE_TEST
