@@ -163,7 +163,7 @@ On 2026-08-31, a full-size TONEX Pedal (`VID 0x1963`, `PID 0x0068`) completed 10
 - Presets 0–127 returned 1,189-byte payloads; presets 128–149 returned 1,190-byte payloads because of the extended request/response index encoding.
 - No preset names or raw response payloads were retained.
 
-The same pedal also completed a restore-protected CoreMIDI boundary probe from an initial display of `0.AA`:
+The same pedal also completed a restore-protected CoreMIDI boundary probe from index 0 (UI label `00A`). The pedal display began with `0.AA`, where `0.` was the bank and `AA` was the beginning of the factory preset name—not a slot code:
 
 - MIDI indices `0`, `127`, `128`, and `149` were accepted, followed by restoration to index `0`.
 - The bank transition used Bank Select 0 / Program 127 for index 127 and Bank Select 1 / Program 0 for index 128.
@@ -177,6 +177,15 @@ The same pedal also completed a restore-protected CoreMIDI boundary probe from a
 - The deterministic rapid-change harness delivered all `151/151` CDC events in exact order during 150 changes at 5 Hz, including the final restore to index 0. It reported no missing, excess, malformed, unrelated, or CRC-invalid frames.
 - A near-throughput run delivered all `101/101` CDC events in exact order during 100 changes at 10 Hz, again with no protocol errors and with the final restore to index 0 confirmed after a four-second drain.
 
+A Chrome direct-USB operator smoke test on the same Mac and pedal established the browser UX baseline:
+
+- A fresh browser profile showed `Mode: direct USB`, `Pedal: connected`, and `Library: empty` without claiming an active preset.
+- Direct WebMIDI selection was explicitly labeled unconfirmed instead of being presented as the active preset.
+- Browser selections of UI labels `01A` and `00A` produced privacy-safe CDC active-preset events for indices 3 and 0, respectively, with zero CRC errors.
+- A browser-driven sync loaded names for all `150/150` presets and advanced library health from empty through syncing to current.
+- Reloading retained all names and correctly changed library health to cached because the new page session could not prove the pedal library was unchanged.
+- USB removal changed the pedal status to disconnected after the macOS/Chrome device event arrived, observed at approximately one to two seconds. Reconnection was automatic, did not select an unrelated MIDI output, and retained the cached library.
+
 Physical-control captures on the same pedal established the following unsolicited CDC behavior:
 
 - A five-second idle baseline produced no frames.
@@ -184,7 +193,7 @@ Physical-control captures on the same pedal established the following unsolicite
 - Footswitches B, C, and A emitted one active-preset event each for indices 1, 2, and 0.
 - Engaging and disengaging bypass produced no unsolicited CDC frame.
 - Bank up/down without choosing a slot produced no unsolicited CDC frame.
-- Bank up followed by A emitted index 3 (`1.AA`); bank down followed by A emitted index 0 (`0.AA`). The bank-navigation gestures themselves emitted nothing.
+- Bank up followed by footswitch A emitted index 3; bank down followed by A emitted index 0. The observed `1.AA` and `0.AA` displays were the bank number followed by a preset name beginning with `AA`; they must not be interpreted as bank/slot notation. The bank-navigation gestures themselves emitted nothing.
 - All observed preset-selection messages used the existing `04 02 b9 03 00` active-preset body prefix. No additional unsolicited control-message type was found, and every capture completed with zero CRC errors.
 
 Focused bypass-state testing established a stricter limitation:
