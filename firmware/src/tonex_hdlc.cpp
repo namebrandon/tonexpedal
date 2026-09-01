@@ -136,6 +136,31 @@ namespace ToneXHDLC {
         return val;
     }
 
+    bool decodePresetIndex(const uint8_t* data, size_t length, uint8_t& index) {
+        static const uint8_t HEADER_PREFIX[] = {0xB9, 0x03, 0x81, 0x04, 0x02, 0x81};
+        static const uint8_t RESPONSE_PREFIX[] = {0x04, 0x10, 0xB9, 0x03, 0x01};
+        static const uint8_t EVENT_PREFIX[] = {0x04, 0x02, 0xB9, 0x03, 0x00};
+        if (!data || length < 20 || std::memcmp(data, HEADER_PREFIX, sizeof(HEADER_PREFIX)) != 0) {
+            return false;
+        }
+        if (std::memcmp(data + 7, RESPONSE_PREFIX, sizeof(RESPONSE_PREFIX)) != 0 &&
+            std::memcmp(data + 7, EVENT_PREFIX, sizeof(EVENT_PREFIX)) != 0) {
+            return false;
+        }
+
+        size_t nameMarkerOffset = 13;
+        uint8_t decoded = data[12];
+        if (decoded == 0x80) {
+            decoded = data[13];
+            nameMarkerOffset = 14;
+            if (decoded < 128) return false;
+        }
+        if (decoded >= 150 || nameMarkerOffset + sizeof(NAME_MARKER) > length) return false;
+        if (std::memcmp(data + nameMarkerOffset, NAME_MARKER, sizeof(NAME_MARKER)) != 0) return false;
+        index = decoded;
+        return true;
+    }
+
     bool decodePresetResponse(const uint8_t* data, size_t length, PresetData& preset) {
         constexpr size_t NAME_LENGTH = 32;
         constexpr size_t FLOAT_SIZE = 5;

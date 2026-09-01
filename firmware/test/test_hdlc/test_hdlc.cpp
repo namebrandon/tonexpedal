@@ -117,6 +117,43 @@ void test_decode_preset_response(void) {
     TEST_ASSERT_TRUE(preset.cab);
 }
 
+std::vector<uint8_t> presetIndexPayload(uint8_t index, bool unsolicited) {
+    const bool extended = index >= 128;
+    std::vector<uint8_t> response(extended ? 1190 : 1189, 0);
+    const uint8_t header[] = {0xB9, 0x03, 0x81, 0x04, 0x02, 0x81, static_cast<uint8_t>(extended ? 0x9D : 0x9C)};
+    const uint8_t responsePrefix[] = {0x04, 0x10, 0xB9, 0x03, 0x01};
+    const uint8_t eventPrefix[] = {0x04, 0x02, 0xB9, 0x03, 0x00};
+    std::memcpy(response.data(), header, sizeof(header));
+    std::memcpy(response.data() + 7, unsolicited ? eventPrefix : responsePrefix, sizeof(responsePrefix));
+    const size_t markerOffset = extended ? 14 : 13;
+    if (extended) response[12] = 0x80;
+    response[extended ? 13 : 12] = index;
+    std::memcpy(response.data() + markerOffset, ToneXHDLC::NAME_MARKER, sizeof(ToneXHDLC::NAME_MARKER));
+    return response;
+}
+
+void test_decode_preset_index_boundaries(void) {
+    for (uint8_t index : {0, 127, 128, 149}) {
+        for (bool unsolicited : {false, true}) {
+            std::vector<uint8_t> response = presetIndexPayload(index, unsolicited);
+            uint8_t decoded = 0xFF;
+            TEST_ASSERT_TRUE(ToneXHDLC::decodePresetIndex(response.data(), response.size(), decoded));
+            TEST_ASSERT_EQUAL_UINT8(index, decoded);
+        }
+    }
+}
+
+void test_decode_preset_index_rejects_invalid_payloads(void) {
+    std::vector<uint8_t> response = presetIndexPayload(128, true);
+    response[13] = 150;
+    uint8_t decoded = 0;
+    TEST_ASSERT_FALSE(ToneXHDLC::decodePresetIndex(response.data(), response.size(), decoded));
+
+    response = presetIndexPayload(128, true);
+    response[13] = 42;
+    TEST_ASSERT_FALSE(ToneXHDLC::decodePresetIndex(response.data(), response.size(), decoded));
+}
+
 void test_full_size_tonex_parameter_marker(void) {
     const uint8_t expected[] = {0xBA, 0x03, 0xBA, 0x29};
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, ToneXHDLC::PARAM_MARKER, sizeof(expected));
@@ -132,6 +169,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_midi_bank_select_commands);
     RUN_TEST(test_usb_midi_event_packets);
     RUN_TEST(test_decode_preset_response);
+    RUN_TEST(test_decode_preset_index_boundaries);
+    RUN_TEST(test_decode_preset_index_rejects_invalid_payloads);
     RUN_TEST(test_full_size_tonex_parameter_marker);
     return UNITY_END();
 }
