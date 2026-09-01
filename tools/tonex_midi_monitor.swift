@@ -33,6 +33,8 @@ guard let duration = durationFromArguments() else {
     exit(2)
 }
 
+setlinebuf(stdout)
+
 var client = MIDIClientRef()
 var inputPort = MIDIPortRef()
 var messageCount = 0
