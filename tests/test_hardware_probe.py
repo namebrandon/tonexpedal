@@ -61,6 +61,7 @@ class HardwareProbeProtocolTests(unittest.TestCase):
         decoded = decoder.feed(bytes(corrupt) + probe.build_frame(b"valid"))
         self.assertEqual(decoded, [b"valid"])
         self.assertIsInstance(decoder.last_protocol_error, probe.ProtocolError)
+        self.assertEqual(decoder.protocol_error_count, 1)
 
     def test_stream_decoder_discards_oversized_partial_frame(self):
         decoder = probe.HdlcStreamDecoder(max_frame_bytes=8)

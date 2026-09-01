@@ -106,6 +106,7 @@ class HdlcStreamDecoder:
         self.max_frame_bytes = max_frame_bytes
         self.pending = bytearray()
         self.last_protocol_error: Optional[ProtocolError] = None
+        self.protocol_error_count = 0
 
     def feed(self, chunk: bytes) -> list[bytes]:
         payloads = []
@@ -117,6 +118,7 @@ class HdlcStreamDecoder:
                         payloads.append(deframe(bytes(self.pending)))
                     except ProtocolError as exc:
                         self.last_protocol_error = exc
+                        self.protocol_error_count += 1
                 self.pending = bytearray([0x7E])
             elif self.pending:
                 self.pending.append(byte)
