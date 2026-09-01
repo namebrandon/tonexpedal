@@ -562,6 +562,75 @@
             white-space: nowrap;
         }
 
+        .operator-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 34px;
+            padding: 5px 12px;
+            background: #11182d;
+            border-bottom: 1px solid #0f3460;
+            font-size: 0.78em;
+            flex-wrap: wrap;
+        }
+
+        .health-chip {
+            padding: 3px 8px;
+            border: 1px solid #555;
+            border-radius: 999px;
+            color: #aaa;
+            white-space: nowrap;
+        }
+
+        .health-chip[data-state="ok"] {
+            border-color: #4caf50;
+            color: #8be28f;
+        }
+
+        .health-chip[data-state="busy"] {
+            border-color: #ffb300;
+            color: #ffd166;
+        }
+
+        .health-chip[data-state="error"] {
+            border-color: #e94560;
+            color: #ff8295;
+        }
+
+        .preset-command-status {
+            flex: 1;
+            min-width: 180px;
+            color: #aaa;
+        }
+
+        .preset-command-status[data-state="pending"] { color: #ffd166; }
+        .preset-command-status[data-state="confirmed"] { color: #8be28f; }
+        .preset-command-status[data-state="error"] { color: #ff8295; }
+
+        .preset-row.pending,
+        .grid-btn.pending {
+            border-color: #ffb300;
+            box-shadow: 0 0 14px rgba(255, 179, 0, 0.35);
+            animation: pending-pulse 0.8s ease-in-out infinite alternate;
+        }
+
+        .preset-row.requested,
+        .grid-btn.requested {
+            border-color: #8d78b8;
+            border-style: dashed;
+        }
+
+        .preset-row.active.stale,
+        .grid-btn.active.stale {
+            border-style: dashed;
+            box-shadow: none;
+        }
+
+        @keyframes pending-pulse {
+            from { opacity: 0.72; }
+            to { opacity: 1; }
+        }
+
         @media (max-width: 700px) {
             .library-panel {
                 width: 260px;
@@ -639,6 +708,13 @@
             </div>
         </div>
     </header>
+
+    <div class="operator-status" id="operator-status" role="status" aria-live="polite">
+        <span class="health-chip" id="bridge-health"></span>
+        <span class="health-chip" id="pedal-health"></span>
+        <span class="health-chip" id="library-health"></span>
+        <span class="preset-command-status" id="preset-command-status"></span>
+    </div>
 
     <div class="main-layout" id="main-layout">
         <div class="library-panel">
@@ -726,7 +802,27 @@
                 importCount: ' presets importés',
                 exportDiagnostics: 'Exporter la capture de diagnostic (peut contenir les noms de presets)',
                 bridgeConnected: 'Connecté (Wi-Fi)',
-                bridgeDevice: 'ToneX (Pont Wi-Fi)'
+                bridgeDevice: 'ToneX (Pont Wi-Fi)',
+                bridgeOnline: 'Pont : en ligne',
+                bridgeConnecting: 'Pont : connexion…',
+                bridgeOffline: 'Pont : hors ligne',
+                directMode: 'Mode : USB direct',
+                pedalOnline: 'Pédale : connectée',
+                pedalOffline: 'Pédale : déconnectée',
+                libraryEmpty: 'Bibliothèque : vide',
+                libraryCached: 'Bibliothèque : en cache',
+                librarySyncing: 'Bibliothèque : synchro…',
+                libraryCurrent: 'Bibliothèque : à jour',
+                libraryStale: 'Bibliothèque : périmée',
+                presetQueued: 'Sélection de {preset}…',
+                presetWaiting: 'Commande envoyée ; confirmation de {preset}…',
+                presetConfirmed: 'Confirmé : {preset}',
+                presetTimedOut: 'Aucune confirmation pour {preset}',
+                presetSendFailed: 'Échec de sélection : {preset}',
+                presetUnconfirmed: 'Envoyé sans confirmation : {preset}',
+                presetDisconnected: 'Sélection interrompue : connexion perdue',
+                activeConfirmed: 'confirmé',
+                activeStale: 'dernière confirmation — connexion perdue'
             },
             en: {
                 device: 'Device:',
@@ -769,7 +865,27 @@
                 importCount: ' presets imported',
                 exportDiagnostics: 'Export diagnostic capture (may contain preset names)',
                 bridgeConnected: 'Connected (Wi-Fi)',
-                bridgeDevice: 'ToneX (Wi-Fi Bridge)'
+                bridgeDevice: 'ToneX (Wi-Fi Bridge)',
+                bridgeOnline: 'Bridge: online',
+                bridgeConnecting: 'Bridge: connecting…',
+                bridgeOffline: 'Bridge: offline',
+                directMode: 'Mode: direct USB',
+                pedalOnline: 'Pedal: connected',
+                pedalOffline: 'Pedal: disconnected',
+                libraryEmpty: 'Library: empty',
+                libraryCached: 'Library: cached',
+                librarySyncing: 'Library: syncing…',
+                libraryCurrent: 'Library: current',
+                libraryStale: 'Library: stale',
+                presetQueued: 'Selecting {preset}…',
+                presetWaiting: 'Command sent; confirming {preset}…',
+                presetConfirmed: 'Confirmed: {preset}',
+                presetTimedOut: 'No confirmation for {preset}',
+                presetSendFailed: 'Could not select {preset}',
+                presetUnconfirmed: 'Sent without confirmation: {preset}',
+                presetDisconnected: 'Selection interrupted: connection lost',
+                activeConfirmed: 'confirmed',
+                activeStale: 'last confirmation — connection lost'
             }
         };
 
@@ -816,6 +932,8 @@
             if (document.getElementById('active-preset').dataset.base !== undefined) {
                 updateActivePresetDisplay();
             }
+            updateOperatorHealth();
+            updatePresetCommandStatus();
         }
 
         document.getElementById('langToggle').addEventListener('click', () => {
@@ -833,6 +951,8 @@
         const BRIDGE_DISCOVERY_PATH = '/api/bridge';
         const BRIDGE_PROTOCOL_VERSION = 1;
         const DIAGNOSTIC_SCHEMA_VERSION = 1;
+        const PRESET_SEND_DEBOUNCE_MS = 60;
+        const PRESET_CONFIRM_TIMEOUT_MS = 2500;
         const diagnosticsEnabled = new URLSearchParams(window.location.search).get('debug') === '1';
         const diagnosticStartedAt = performance.now();
         const diagnosticCapture = diagnosticsEnabled ? {
@@ -862,6 +982,17 @@
         let bridgeReconnectTimer = null;
         let bridgeSyncActive = false;
         let syncProgressHideTimer = null;
+        let presetDispatchTimer = null;
+        let presetConfirmTimer = null;
+        let presetRequestSequence = 0;
+        let libraryFreshness = 'empty';
+        let presetCommandState = {
+            activePc: -1,
+            activeFreshness: 'unknown',
+            pending: null,
+            lastRequestedPc: -1,
+            commandStatus: 'idle'
+        };
 
         function recordDiagnosticEvent(type, details = {}) {
             if (!diagnosticCapture) return;
@@ -915,6 +1046,8 @@
 
         // --- State ---
         let state = loadState();
+        if (!state.presets) state.presets = {};
+        libraryFreshness = Object.keys(state.presets).length > 0 ? 'cached' : 'empty';
 
         function defaultState() {
             return {
@@ -961,6 +1094,100 @@
             return bank * 3 + slotIndex;
         }
 
+        function transitionPresetCommand(current, event) {
+            const next = {
+                ...current,
+                pending: current.pending ? { ...current.pending } : null
+            };
+
+            if (event.type === 'request') {
+                next.pending = {
+                    requestId: event.requestId,
+                    pc: event.pc,
+                    bank: event.bank,
+                    slot: event.slot,
+                    phase: 'queued'
+                };
+                next.lastRequestedPc = event.pc;
+                next.commandStatus = 'queued';
+            } else if (event.type === 'accepted') {
+                if (next.pending && next.pending.requestId === event.requestId) {
+                    next.pending.phase = 'waiting';
+                    next.commandStatus = 'waiting';
+                }
+            } else if (event.type === 'confirmed') {
+                next.activePc = event.pc;
+                next.activeFreshness = 'confirmed';
+                if (next.pending && next.pending.pc === event.pc) {
+                    next.pending = null;
+                    next.lastRequestedPc = event.pc;
+                    next.commandStatus = 'confirmed';
+                } else if (!next.pending) {
+                    next.lastRequestedPc = event.pc;
+                    next.commandStatus = 'confirmed';
+                }
+            } else if (event.type === 'timeout') {
+                if (next.pending && next.pending.requestId === event.requestId) {
+                    next.pending = null;
+                    next.commandStatus = 'timed_out';
+                }
+            } else if (event.type === 'failed') {
+                if (next.pending && next.pending.requestId === event.requestId) {
+                    next.pending = null;
+                    next.commandStatus = 'failed';
+                }
+            } else if (event.type === 'local_sent') {
+                if (next.pending && next.pending.requestId === event.requestId) {
+                    next.pending = null;
+                    next.commandStatus = 'unconfirmed';
+                }
+            } else if (event.type === 'disconnected') {
+                if (next.activePc >= 0) next.activeFreshness = 'stale';
+                if (next.pending) {
+                    next.pending = null;
+                    next.commandStatus = 'disconnected';
+                }
+            } else if (event.type === 'connected_without_preset') {
+                if (next.activePc >= 0) next.activeFreshness = 'stale';
+            }
+
+            return next;
+        }
+
+        function presetLabel(pc) {
+            if (pc < 0) return '--';
+            const location = bankSlotFromPC(pc);
+            return String(location.bank).padStart(2, '0') + location.slot;
+        }
+
+        function formatPresetMessage(key, pc) {
+            return t(key).replace('{preset}', presetLabel(pc));
+        }
+
+        function clearPresetTimers() {
+            if (presetDispatchTimer) clearTimeout(presetDispatchTimer);
+            if (presetConfirmTimer) clearTimeout(presetConfirmTimer);
+            presetDispatchTimer = null;
+            presetConfirmTimer = null;
+        }
+
+        function applyPresetCommandEvent(event) {
+            presetCommandState = transitionPresetCommand(presetCommandState, event);
+            activePresetPC = presetCommandState.activePc;
+            if (activePresetPC >= 0) {
+                const location = bankSlotFromPC(activePresetPC);
+                activePresetBank = location.bank;
+                activePresetSlot = location.slot;
+            } else {
+                activePresetBank = -1;
+                activePresetSlot = '';
+            }
+            updateActivePresetDisplay();
+            updatePresetCommandStatus();
+            renderLibrary();
+            renderGrid();
+        }
+
         // --- Hardware control transports ---
         const localHardwareTransport = {
             id: 'local',
@@ -969,7 +1196,7 @@
                 return !!midiOutput;
             },
 
-            sendPreset(bank, slot, channel) {
+            sendPreset(bank, slot, channel, requestId) {
                 if (!midiOutput) return false;
 
                 const pc = pcFromBankSlot(bank, slot);
@@ -982,14 +1209,21 @@
                     slot: slot,
                     pc: pc,
                     channel: channel,
+                    request_id: requestId,
                     bank_select: bankSelect,
                     program_change: programChange
                 });
-                midiOutput.send(bankSelect);
-                setTimeout(() => {
-                    midiOutput.send(programChange);
-                }, 30);
-                return true;
+                try {
+                    midiOutput.send(bankSelect);
+                    midiOutput.send(programChange, performance.now() + 30);
+                    return true;
+                } catch (error) {
+                    recordDiagnosticEvent('midi_send_failed', {
+                        request_id: requestId,
+                        message: error.message
+                    });
+                    return false;
+                }
             },
 
             syncPresets() {
@@ -1004,18 +1238,27 @@
                 return isBridgeConnected && wsBridge && wsBridge.readyState === WebSocket.OPEN;
             },
 
-            sendPreset(bank, slot, channel) {
+            sendPreset(bank, slot, channel, requestId) {
                 if (!this.isConnected()) return false;
                 const message = {
                     action: 'midi_send',
                     bank: bank,
                     slot: slot,
                     pc: pcFromBankSlot(bank, slot),
-                    channel: channel
+                    channel: channel,
+                    request_id: requestId
                 };
                 recordDiagnosticEvent('bridge_tx', { message: message });
-                wsBridge.send(JSON.stringify(message));
-                return true;
+                try {
+                    wsBridge.send(JSON.stringify(message));
+                    return true;
+                } catch (error) {
+                    recordDiagnosticEvent('bridge_send_failed', {
+                        request_id: requestId,
+                        message: error.message
+                    });
+                    return false;
+                }
             },
 
             syncPresets() {
@@ -1036,6 +1279,7 @@
         };
 
         function getActiveControlTransport() {
+            if (isBridgeHost) return bridgeTransport;
             return bridgeTransport.isConnected() ? bridgeTransport : localHardwareTransport;
         }
 
@@ -1080,10 +1324,12 @@
             const ui = syncUiElements();
             if (syncProgressHideTimer) clearTimeout(syncProgressHideTimer);
             bridgeSyncActive = true;
+            libraryFreshness = 'syncing';
             ui.button.textContent = '\u23f9 ' + t('cancelSync');
             ui.progress.classList.add('active');
             ui.fill.style.width = '0%';
             ui.text.textContent = t('syncInProgress');
+            updateOperatorHealth();
         }
 
         function finishBridgeSync(message, percent, autoHide = true) {
@@ -1098,6 +1344,7 @@
             if (autoHide) {
                 syncProgressHideTimer = setTimeout(() => ui.progress.classList.remove('active'), 3000);
             }
+            updateOperatorHealth();
         }
 
         async function initWebSocketBridge() {
@@ -1142,11 +1389,13 @@
 
             try {
                 wsBridge = new WebSocket(wsUrl);
+                updateOperatorHealth();
                 wsBridge.onopen = () => {
                     if (bridgeReconnectTimer) clearTimeout(bridgeReconnectTimer);
                     bridgeReconnectTimer = null;
                     isBridgeConnected = true;
                     updateMIDIStatus(isBridgeToneXConnected, true);
+                    applyPresetCommandEvent({ type: 'connected_without_preset' });
                     showBridgeDeviceOption();
                     recordDiagnosticEvent('bridge_connected');
                     console.log('[BRIDGE] Connected to ToneX Wi-Fi Bridge');
@@ -1159,17 +1408,22 @@
                         if (data.event === 'status') {
                             isBridgeToneXConnected = !!data.tonex_connected;
                             updateMIDIStatus(isBridgeToneXConnected, true);
-                            if (data.active_pc !== undefined && data.active_pc >= 0) {
-                                activePresetPC = data.active_pc;
-                                activePresetBank = data.active_bank !== undefined ? data.active_bank : Math.floor(data.active_pc / 3);
-                                activePresetSlot = data.active_slot !== undefined ? data.active_slot : SLOTS[data.active_pc % 3];
-                                updateActivePresetDisplay();
-                                renderLibrary();
+                            if (!isBridgeToneXConnected) {
+                                clearPresetTimers();
+                                applyPresetCommandEvent({ type: 'disconnected' });
+                                if (libraryFreshness === 'current') libraryFreshness = 'stale';
+                            } else if (data.active_pc !== undefined && data.active_pc >= 0) {
+                                if (presetConfirmTimer && presetCommandState.pending && presetCommandState.pending.pc === data.active_pc) {
+                                    clearTimeout(presetConfirmTimer);
+                                    presetConfirmTimer = null;
+                                }
+                                applyPresetCommandEvent({ type: 'confirmed', pc: data.active_pc });
                             } else {
-                                activePresetPC = -1;
-                                updateActivePresetDisplay();
-                                renderLibrary();
+                                applyPresetCommandEvent({ type: 'connected_without_preset' });
                             }
+                            updateOperatorHealth();
+                        } else if (data.event === 'midi_accepted') {
+                            applyPresetCommandEvent({ type: 'accepted', requestId: data.request_id });
                         } else if (data.event === 'sync_progress') {
                             const ui = syncUiElements();
                             if (!bridgeSyncActive) beginBridgeSync();
@@ -1177,11 +1431,22 @@
                             ui.text.textContent = (data.loaded || 0) + ' / ' + (data.total || TOTAL_PRESETS) + '...';
                         } else if (data.event === 'sync_complete') {
                             const total = data.total || TOTAL_PRESETS;
+                            libraryFreshness = 'current';
                             finishBridgeSync(t('syncDone') + total + '/' + total + t('syncPresetsRead'), 100);
                         } else if (data.event === 'sync_cancelled') {
+                            libraryFreshness = Object.keys(state.presets).length > 0 ? 'cached' : 'empty';
                             finishBridgeSync(t('syncCancelled'), 0);
                         } else if (data.event === 'error') {
-                            finishBridgeSync(t('syncError') + (data.message || data.code || 'Unknown bridge error'), 0, false);
+                            const errorMessage = data.message || data.code || 'Unknown bridge error';
+                            if (data.request_id !== undefined) {
+                                if (presetCommandState.pending && presetCommandState.pending.requestId === data.request_id) {
+                                    clearPresetTimers();
+                                }
+                                applyPresetCommandEvent({ type: 'failed', requestId: data.request_id });
+                            } else if (bridgeSyncActive || String(data.code || '').startsWith('sync_')) {
+                                libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
+                                finishBridgeSync(t('syncError') + errorMessage, 0, false);
+                            }
                         } else if (data.event === 'preset_update') {
                             const key = getPresetKey(data.bank, data.slot);
                             if (!state.presets[key]) state.presets[key] = {};
@@ -1202,17 +1467,23 @@
                     wsBridge = null;
                     isBridgeConnected = false;
                     isBridgeToneXConnected = false;
+                    clearPresetTimers();
+                    applyPresetCommandEvent({ type: 'disconnected' });
+                    if (libraryFreshness === 'current') libraryFreshness = 'stale';
                     removeBridgeDeviceOption();
                     updateMIDIStatus(!!midiOutput);
                     if (bridgeSyncActive) {
+                        libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
                         finishBridgeSync(t('syncError') + t('bridgeDisconnected'), 0, false);
                     }
+                    updateOperatorHealth();
                     scheduleBridgeReconnect();
                 };
 
                 wsBridge.onerror = () => {
                     recordDiagnosticEvent('bridge_error');
                     isBridgeConnected = false;
+                    updateOperatorHealth();
                 };
             } catch(e) {
                 recordDiagnosticEvent('bridge_connection_failed', { message: e.message });
@@ -1227,7 +1498,8 @@
             el.dataset.base = 'activePreset';
             if (activePresetPC >= 0) {
                 const info = getPresetInfo(activePresetBank, activePresetSlot);
-                el.textContent = t('activePreset') + String(activePresetBank).padStart(2,'0') + activePresetSlot + ' \u2014 ' + info.name;
+                const freshnessKey = presetCommandState.activeFreshness === 'confirmed' ? 'activeConfirmed' : 'activeStale';
+                el.textContent = t('activePreset') + String(activePresetBank).padStart(2,'0') + activePresetSlot + ' \u2014 ' + info.name + ' (' + t(freshnessKey) + ')';
             } else {
                 el.textContent = t('activePreset') + '--';
             }
@@ -1235,13 +1507,39 @@
 
         function bankSelectAndPC(bank, slot) {
             const pc = pcFromBankSlot(bank, slot);
-            getActiveControlTransport().sendPreset(bank, slot, midiChannel);
+            const requestId = ++presetRequestSequence;
+            const transport = getActiveControlTransport();
 
-            activePresetPC = pc;
-            activePresetBank = bank;
-            activePresetSlot = slot;
-            updateActivePresetDisplay();
-            renderLibrary();
+            clearPresetTimers();
+            applyPresetCommandEvent({ type: 'request', requestId, pc, bank, slot });
+            recordDiagnosticEvent('preset_requested', {
+                request_id: requestId,
+                transport: transport.id,
+                bank,
+                slot,
+                pc
+            });
+
+            presetDispatchTimer = setTimeout(() => {
+                presetDispatchTimer = null;
+                if (!presetCommandState.pending || presetCommandState.pending.requestId !== requestId) return;
+
+                const sent = transport.sendPreset(bank, slot, midiChannel, requestId);
+                if (!sent) {
+                    applyPresetCommandEvent({ type: 'failed', requestId });
+                    return;
+                }
+
+                if (transport === localHardwareTransport) {
+                    applyPresetCommandEvent({ type: 'local_sent', requestId });
+                    return;
+                }
+
+                presetConfirmTimer = setTimeout(() => {
+                    presetConfirmTimer = null;
+                    applyPresetCommandEvent({ type: 'timeout', requestId });
+                }, PRESET_CONFIRM_TIMEOUT_MS);
+            }, PRESET_SEND_DEBOUNCE_MS);
         }
 
         async function initMIDI() {
@@ -1329,6 +1627,75 @@
             } else {
                 txt.textContent = connected ? t('connected') : t('disconnected');
             }
+            updateOperatorHealth();
+        }
+
+        function setHealthChip(id, text, status) {
+            const chip = document.getElementById(id);
+            if (!chip) return;
+            chip.textContent = text;
+            chip.dataset.state = status;
+        }
+
+        function updateOperatorHealth() {
+            const bridgeConnecting = isBridgeHost && wsBridge && wsBridge.readyState === WebSocket.CONNECTING;
+            if (isBridgeHost && isBridgeConnected) {
+                setHealthChip('bridge-health', t('bridgeOnline'), 'ok');
+            } else if (bridgeConnecting) {
+                setHealthChip('bridge-health', t('bridgeConnecting'), 'busy');
+            } else if (isBridgeHost) {
+                setHealthChip('bridge-health', t('bridgeOffline'), 'error');
+            } else {
+                setHealthChip('bridge-health', t('directMode'), midiOutput ? 'ok' : '');
+            }
+
+            const pedalConnected = isBridgeHost ?
+                (isBridgeConnected && isBridgeToneXConnected) : !!midiOutput;
+            setHealthChip('pedal-health', pedalConnected ? t('pedalOnline') : t('pedalOffline'), pedalConnected ? 'ok' : 'error');
+
+            const libraryKeys = {
+                empty: 'libraryEmpty',
+                cached: 'libraryCached',
+                syncing: 'librarySyncing',
+                current: 'libraryCurrent',
+                stale: 'libraryStale'
+            };
+            const libraryStates = {
+                empty: '',
+                cached: '',
+                syncing: 'busy',
+                current: 'ok',
+                stale: 'error'
+            };
+            setHealthChip('library-health', t(libraryKeys[libraryFreshness]), libraryStates[libraryFreshness]);
+        }
+
+        function updatePresetCommandStatus() {
+            const el = document.getElementById('preset-command-status');
+            if (!el) return;
+
+            const status = presetCommandState.commandStatus;
+            const targetPc = presetCommandState.pending ? presetCommandState.pending.pc : presetCommandState.lastRequestedPc;
+            const messages = {
+                queued: 'presetQueued',
+                waiting: 'presetWaiting',
+                confirmed: 'presetConfirmed',
+                timed_out: 'presetTimedOut',
+                failed: 'presetSendFailed',
+                unconfirmed: 'presetUnconfirmed'
+            };
+
+            if (status === 'idle') {
+                el.textContent = '';
+                el.dataset.state = '';
+            } else if (status === 'disconnected') {
+                el.textContent = t('presetDisconnected');
+                el.dataset.state = 'error';
+            } else {
+                el.textContent = formatPresetMessage(messages[status], targetPc);
+                el.dataset.state = status === 'confirmed' ? 'confirmed' :
+                    (status === 'queued' || status === 'waiting' ? 'pending' : 'error');
+            }
         }
 
         // --- Library ---
@@ -1360,7 +1727,15 @@
                     bankHasVisible = true;
 
                     const row = document.createElement('div');
-                    row.className = 'preset-row' + (pc === activePresetPC ? ' active' : '');
+                    row.className = 'preset-row';
+                    if (pc === activePresetPC) {
+                        row.classList.add('active');
+                        if (presetCommandState.activeFreshness === 'stale') row.classList.add('stale');
+                    }
+                    if (presetCommandState.pending && pc === presetCommandState.pending.pc) row.classList.add('pending');
+                    if (!presetCommandState.pending &&
+                        ['unconfirmed', 'timed_out', 'failed'].includes(presetCommandState.commandStatus) &&
+                        pc === presetCommandState.lastRequestedPc) row.classList.add('requested');
                     row.draggable = true;
                     row.dataset.source = 'library';
                     row.dataset.bank = bank;
@@ -1436,6 +1811,7 @@
 
                 if (assigned) {
                     const info = getPresetInfo(assigned.bank, assigned.slot);
+                    const assignedPc = pcFromBankSlot(assigned.bank, assigned.slot);
                     btn.innerHTML =
                         '<span class="btn-slot">' + String(assigned.bank).padStart(2,'0') + assigned.slot + '</span>' +
                         '<span class="btn-name">' + escapeHtml(info.name) + '</span>' +
@@ -1445,6 +1821,14 @@
                         '</span>';
 
                     btn.classList.remove('empty');
+                    if (assignedPc === activePresetPC) {
+                        btn.classList.add('active');
+                        if (presetCommandState.activeFreshness === 'stale') btn.classList.add('stale');
+                    }
+                    if (presetCommandState.pending && assignedPc === presetCommandState.pending.pc) btn.classList.add('pending');
+                    if (!presetCommandState.pending &&
+                        ['unconfirmed', 'timed_out', 'failed'].includes(presetCommandState.commandStatus) &&
+                        assignedPc === presetCommandState.lastRequestedPc) btn.classList.add('requested');
                     btn.draggable = true;
 
                     btn.addEventListener('click', (e) => {
@@ -1929,12 +2313,12 @@
         function applyLocalActivePresetEvent(payload) {
             const index = decodeActivePresetEventIndex(payload);
             if (index === null) return false;
-            activePresetPC = index;
-            activePresetBank = Math.floor(index / 3);
-            activePresetSlot = SLOTS[index % 3];
             recordDiagnosticEvent('active_preset_event', { index, source: 'local_cdc' });
-            updateActivePresetDisplay();
-            renderLibrary();
+            if (presetConfirmTimer && presetCommandState.pending && presetCommandState.pending.pc === index) {
+                clearTimeout(presetConfirmTimer);
+                presetConfirmTimer = null;
+            }
+            applyPresetCommandEvent({ type: 'confirmed', pc: index });
             return true;
         }
 
@@ -1980,6 +2364,7 @@
 
                 beginBridgeSync();
                 if (!activeTransport.syncPresets()) {
+                    libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
                     finishBridgeSync(t('syncError') + t('bridgeDisconnected'), 0, false);
                 }
                 return;
@@ -1999,11 +2384,15 @@
                 await transportDisconnect();
                 syncBtn.textContent = '\ud83d\udd0c Sync USB';
                 progressEl.classList.remove('active');
+                libraryFreshness = Object.keys(state.presets).length > 0 ? 'cached' : 'empty';
+                updateOperatorHealth();
                 return;
             }
 
             // Try Web Serial first, then WebUSB fallback
             recordDiagnosticEvent('sync_started', { mode: 'local' });
+            libraryFreshness = 'syncing';
+            updateOperatorHealth();
             useUsb = false;
             if ('serial' in navigator) {
                 try {
@@ -2078,11 +2467,15 @@
                     });
                 } catch(e) {
                     recordDiagnosticEvent('transport_connection_failed', { transport: 'webusb', message: e.message });
+                    libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
+                    updateOperatorHealth();
                     alert(t('portError') + e.message);
                     return;
                 }
             }
             if (!serialPort && !useUsb) {
+                libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
+                updateOperatorHealth();
                 alert(t('portError') + ('serial' in navigator ? '' : 'Web Serial unavailable'));
                 return;
             }
@@ -2205,14 +2598,17 @@
                 renderGrid();
                 textEl.textContent = t('syncDone') + successCount + '/' + total + t('syncPresetsRead');
                 fillEl.style.width = '100%';
+                libraryFreshness = successCount === total ? 'current' : (successCount > 0 ? 'cached' : 'stale');
                 recordDiagnosticEvent('sync_complete', { loaded: loaded, successful: successCount, total: total });
             } catch(e) {
                 recordDiagnosticEvent('sync_error', { message: e.message });
                 console.error('Sync error:', e);
                 textEl.textContent = t('syncError') + e.message;
+                libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
             } finally {
                 await transportDisconnect();
                 syncBtn.textContent = '\ud83d\udd0c Sync USB';
+                updateOperatorHealth();
                 setTimeout(() => progressEl.classList.remove('active'), 3000);
             }
         }
@@ -2277,8 +2673,10 @@
                         count++;
                     }
                     saveState();
+                    libraryFreshness = count > 0 ? 'cached' : libraryFreshness;
                     renderLibrary();
                     renderGrid();
+                    updateOperatorHealth();
                     alert(t('importDone') + ' ' + count + t('importCount'));
                 } catch(err) {
                     alert(t('importInvalid'));
