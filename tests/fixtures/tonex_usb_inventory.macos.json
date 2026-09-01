@@ -1,0 +1,88 @@
+{
+  "device": {
+    "device_class": 239,
+    "device_protocol": 1,
+    "device_subclass": 2,
+    "link_speed_bps": 480000000,
+    "product_id": 104,
+    "usb_speed": 3,
+    "vendor_id": 6499
+  },
+  "endpoint_details_available": false,
+  "endpoint_note": "IORegistry reports endpoint counts but not addresses/types; capture those from ESP32 descriptor logs.",
+  "interfaces": [
+    {
+      "alternate_setting": 0,
+      "class": 2,
+      "endpoint_count": 1,
+      "name": null,
+      "number": 0,
+      "protocol": 0,
+      "role": "cdc_control",
+      "subclass": 2
+    },
+    {
+      "alternate_setting": 0,
+      "class": 10,
+      "endpoint_count": 2,
+      "name": null,
+      "number": 1,
+      "protocol": 0,
+      "role": "cdc_data",
+      "subclass": 0
+    },
+    {
+      "alternate_setting": 0,
+      "class": 1,
+      "endpoint_count": 1,
+      "name": "ToneX",
+      "number": 2,
+      "protocol": 32,
+      "role": "audio_control",
+      "subclass": 1
+    },
+    {
+      "alternate_setting": 0,
+      "class": 1,
+      "endpoint_count": 0,
+      "name": "ToneX Record",
+      "number": 3,
+      "protocol": 32,
+      "role": "audio_streaming",
+      "subclass": 2
+    },
+    {
+      "alternate_setting": 0,
+      "class": 1,
+      "endpoint_count": 0,
+      "name": "ToneX Playback",
+      "number": 4,
+      "protocol": 32,
+      "role": "audio_streaming",
+      "subclass": 2
+    },
+    {
+      "alternate_setting": 0,
+      "class": 1,
+      "endpoint_count": 0,
+      "name": "ToneX MIDI Control",
+      "number": 5,
+      "protocol": 0,
+      "role": "midi_control",
+      "subclass": 1
+    },
+    {
+      "alternate_setting": 0,
+      "class": 1,
+      "endpoint_count": 2,
+      "name": "ToneX MIDI Streaming",
+      "number": 6,
+      "protocol": 0,
+      "role": "midi_streaming",
+      "subclass": 3
+    }
+  ],
+  "privacy": "serial, location, session, and raw descriptor signature omitted",
+  "schema_version": 1,
+  "source": "macos_ioreg"
+}

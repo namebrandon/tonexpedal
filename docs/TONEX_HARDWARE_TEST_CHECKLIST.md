@@ -26,6 +26,14 @@ The default probe validates Hello, State, and preset boundaries 0/127/128/149 wi
 
 Use `npm run hardware:probe -- --all --repeat 10` for a reconnect soak test. Every cycle opens the port, validates the full library without exposing names, closes the port, and reports timing and response-size distributions.
 
+On macOS, capture a privacy-safe interface inventory with:
+
+```bash
+npm run hardware:inventory
+```
+
+The inventory deliberately omits the pedal serial number, location, session identifier, and raw descriptor signature. IORegistry exposes endpoint counts but not endpoint addresses or transfer types, so those remain pending until the ESP32 host descriptor log is available.
+
 ## 1. Original Direct-MIDI Path
 
 - Select the TONEX MIDI output and confirm the status turns green.
