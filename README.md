@@ -187,6 +187,14 @@ For a repeated full-library soak test that closes and reopens the serial port ea
 npm run hardware:probe -- --all --repeat 10
 ```
 
+On macOS, once the current preset index is known, validate rapid MIDI changes and their CDC confirmations while restoring that preset afterward:
+
+```bash
+npm run hardware:midi-stress -- --restore-index 0
+```
+
+The default sends 150 changes at 5 Hz over 30 seconds and fails on missing, excess, reordered, malformed, or CRC-invalid events. It also requires CDC to confirm the final restored index. This command changes the audible preset, so reduce monitor volume before running it.
+
 ### MIDI Protocol
 
 The TONEX Pedal uses 50 banks × 3 slots (A/B/C) = 150 presets.

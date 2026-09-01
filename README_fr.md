@@ -175,6 +175,14 @@ La cible ESP32 utilise PlatformIO Espressif32 7.0.1 avec une configuration N16R8
 
 Pour la validation matérielle USB directe et la capture de diagnostic optionnelle, consultez la [checklist de test matériel TONEX](docs/TONEX_HARDWARE_TEST_CHECKLIST.md).
 
+Sous macOS, lorsque l'index du preset actuel est connu, validez les changements MIDI rapides et leurs confirmations CDC tout en restaurant ensuite ce preset :
+
+```bash
+npm run hardware:midi-stress -- --restore-index 0
+```
+
+Par défaut, le test envoie 150 changements à 5 Hz pendant 30 secondes. Il échoue en cas d'événement manquant, excédentaire, désordonné, mal formé ou doté d'un CRC invalide, et exige que CDC confirme l'index restauré final. Cette commande change le preset audible ; réduisez le volume des moniteurs avant de l'exécuter.
+
 ### Protocole MIDI
 
 Le TONEX Pedal utilise 50 banks × 3 slots (A/B/C) = 150 presets.

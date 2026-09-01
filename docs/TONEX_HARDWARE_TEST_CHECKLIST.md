@@ -65,6 +65,29 @@ npm run hardware:midi-probe -- --restore-index 0
 - Select `49C` and verify the final preset, PC 149.
 - Confirm no `/ws` connection retries appear while hosted on the ordinary local server.
 
+### Rapid-change event integrity
+
+After confirming the pedal's current index, run the macOS stress harness. The default test sends 150 deterministic, non-adjacent preset changes at 5 Hz for 30 seconds, restores the supplied index, and continuously drains CDC while MIDI is active:
+
+```bash
+npm run hardware:midi-stress -- --restore-index 0
+```
+
+The command changes the pedal preset. Keep the audio path muted or at low volume and supply the actual starting index to `--restore-index`. A passing result requires:
+
+- Every transmitted change and the final restore to have one CDC event in exact order.
+- No missing, excess, malformed, or CRC-invalid frames.
+- No unrelated CDC frames during the controlled run.
+- The last CDC event to confirm the requested restore index.
+
+For a short boundary characterization near the observed CDC throughput limit, use 10 Hz with a longer drain period:
+
+```bash
+npm run hardware:midi-stress -- --restore-index 0 --rate 10 --duration 10 --drain-seconds 4
+```
+
+Treat 10 Hz as a stress condition, not as the recommended application command rate. The tool accepts 0.5–10 changes per second and always makes a best-effort restore if its MIDI sender is interrupted or fails.
+
 ## 2. Initial CDC Synchronization
 
 - Click **Sync USB** and select the TONEX serial device.
@@ -104,6 +127,7 @@ Do not add raw captures to Git. Files named `tonex-diagnostic-*.json` and JSON f
 ## Pass Criteria Before ESP32 Testing
 
 - Direct MIDI switches all four boundary presets correctly.
+- The 5 Hz rapid-change test reports every CDC event in exact order and confirms the restored index.
 - A full sync reads all 150 presets or any failures are understood from the capture.
 - Cancellation releases the port and a second sync can start.
 - The exported diagnostic can be parsed and summarized.
@@ -119,7 +143,7 @@ On 2026-08-31, a full-size TONEX Pedal (`VID 0x1963`, `PID 0x0068`) completed 10
 - Presets 0–127 returned 1,189-byte payloads; presets 128–149 returned 1,190-byte payloads because of the extended request/response index encoding.
 - No preset names or raw response payloads were retained.
 
-The same pedal also completed a restore-protected CoreMIDI boundary probe from an initial display of `0.A`:
+The same pedal also completed a restore-protected CoreMIDI boundary probe from an initial display of `0.AA`:
 
 - MIDI indices `0`, `127`, `128`, and `149` were accepted, followed by restoration to index `0`.
 - The bank transition used Bank Select 0 / Program 127 for index 127 and Bank Select 1 / Program 0 for index 128.
@@ -130,6 +154,8 @@ The same pedal also completed a restore-protected CoreMIDI boundary probe from a
 - Solicited and unsolicited preset payloads encode indices 0–127 at byte 12. Indices 128–149 use an `0x80` extension at byte 12 and the raw index at byte 13.
 - A full `150/150` preset read completed while MIDI injected indices `0`, `127`, `128`, `149`, and restored `0`; the CDC demultiplexer dispatched all five active events without misassigning them to pending preset requests.
 - A burst run repeated that boundary sequence three times during one full read; all `150/150` responses and all 15 active events arrived in order with no drops.
+- The deterministic rapid-change harness delivered all `151/151` CDC events in exact order during 150 changes at 5 Hz, including the final restore to index 0. It reported no missing, excess, malformed, unrelated, or CRC-invalid frames.
+- A near-throughput run delivered all `101/101` CDC events in exact order during 100 changes at 10 Hz, again with no protocol errors and with the final restore to index 0 confirmed after a four-second drain.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
 
