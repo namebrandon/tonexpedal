@@ -1890,6 +1890,71 @@
         const AMP_ENABLE_INDEX = 17;
         const CAB_TYPE_INDEX = 23;
         const FLOAT_SIZE = 5;
+        const PRESET_RESPONSE_PREFIX = new Uint8Array([0x04, 0x10, 0xB9, 0x03, 0x01]);
+        const ACTIVE_PRESET_EVENT_PREFIX = new Uint8Array([0x04, 0x02, 0xB9, 0x03, 0x00]);
+
+        function bytesMatch(data, offset, expected) {
+            if (offset + expected.length > data.length) return false;
+            for (let i = 0; i < expected.length; i++) {
+                if (data[offset + i] !== expected[i]) return false;
+            }
+            return true;
+        }
+
+        function decodePresetIndex(data) {
+            const header = new Uint8Array([0xB9, 0x03, 0x81, 0x04, 0x02, 0x81]);
+            if (data.length < 20 || !bytesMatch(data, 0, header)) return null;
+            if (!bytesMatch(data, 7, PRESET_RESPONSE_PREFIX) &&
+                !bytesMatch(data, 7, ACTIVE_PRESET_EVENT_PREFIX)) return null;
+
+            let markerOffset = 13;
+            let index = data[12];
+            if (index === 0x80) {
+                index = data[13];
+                markerOffset = 14;
+                if (index < 128) return null;
+            }
+            if (index >= TOTAL_PRESETS || !bytesMatch(data, markerOffset, NAME_MARKER)) return null;
+            return index;
+        }
+
+        function decodePresetResponseIndex(data) {
+            return bytesMatch(data, 7, PRESET_RESPONSE_PREFIX) ? decodePresetIndex(data) : null;
+        }
+
+        function decodeActivePresetEventIndex(data) {
+            return bytesMatch(data, 7, ACTIVE_PRESET_EVENT_PREFIX) ? decodePresetIndex(data) : null;
+        }
+
+        function applyLocalActivePresetEvent(payload) {
+            const index = decodeActivePresetEventIndex(payload);
+            if (index === null) return false;
+            activePresetPC = index;
+            activePresetBank = Math.floor(index / 3);
+            activePresetSlot = SLOTS[index % 3];
+            recordDiagnosticEvent('active_preset_event', { index, source: 'local_cdc' });
+            updateActivePresetDisplay();
+            renderLibrary();
+            return true;
+        }
+
+        async function readSolicitedFrame(timeoutMs, expectedPresetIndex = null) {
+            const deadline = Date.now() + timeoutMs;
+            while (Date.now() < deadline) {
+                const payload = await readFrame(deadline - Date.now());
+                if (!payload) return null;
+                if (applyLocalActivePresetEvent(payload)) continue;
+                if (expectedPresetIndex !== null) {
+                    const responseIndex = decodePresetResponseIndex(payload);
+                    if (responseIndex === null) throw new Error('Unexpected payload while waiting for preset ' + expectedPresetIndex);
+                    if (responseIndex !== expectedPresetIndex) {
+                        throw new Error('Preset response ' + responseIndex + ' does not match request ' + expectedPresetIndex);
+                    }
+                }
+                return payload;
+            }
+            return null;
+        }
 
         function isCabEnabled(cabType) {
             return cabType === 0 || cabType === 1;
@@ -2040,18 +2105,16 @@
                 console.log('[SYNC] Sending hello...');
                 recordDiagnosticEvent('sync_phase', { phase: 'hello' });
                 await transportSend(buildFrame(HELLO_CMD));
-                const helloResp = await readFrame(3000);
+                const helloResp = await readSolicitedFrame(3000);
                 recordDiagnosticEvent('sync_phase_result', { phase: 'hello', received: !!helloResp });
                 console.log('[SYNC] Hello response:', helloResp ? bytesToHex(helloResp) : 'null');
 
                 await delay(200);
-                rxBuffer = [];
-
                 textEl.textContent = 'State...';
                 console.log('[SYNC] Sending state...');
                 recordDiagnosticEvent('sync_phase', { phase: 'state' });
                 await transportSend(buildFrame(REQUEST_STATE_CMD));
-                const stateResp = await readFrame(3000);
+                const stateResp = await readSolicitedFrame(3000);
                 recordDiagnosticEvent('sync_phase_result', { phase: 'state', received: !!stateResp });
                 console.log('[SYNC] State response:', stateResp ? bytesToHex(stateResp) : 'null');
 
@@ -2079,7 +2142,6 @@
                         ]);
                     }
 
-                    rxBuffer = [];
                     recordDiagnosticEvent('sync_preset_requested', {
                         index: i,
                         bank: Math.floor(i / 3),
@@ -2087,7 +2149,7 @@
                     });
                     await transportSend(buildFrame(presetReq));
 
-                    const response = await readFrame(3000);
+                    const response = await readSolicitedFrame(3000, i);
                     let decodedName = null;
                     if (response) {
                         const afterMarker = extractAfterMarker(response, NAME_MARKER);

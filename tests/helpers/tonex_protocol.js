@@ -134,6 +134,41 @@ const PARAM_MARKER = new Uint8Array([0xBA, 0x03, 0xBA, 0x29]);
 const AMP_ENABLE_INDEX = 17;
 const CAB_TYPE_INDEX = 23;
 const FLOAT_SIZE = 5;
+const PRESET_RESPONSE_PREFIX = new Uint8Array([0x04, 0x10, 0xB9, 0x03, 0x01]);
+const ACTIVE_PRESET_EVENT_PREFIX = new Uint8Array([0x04, 0x02, 0xB9, 0x03, 0x00]);
+
+function bytesMatch(data, offset, expected) {
+    if (offset + expected.length > data.length) return false;
+    for (let i = 0; i < expected.length; i++) {
+        if (data[offset + i] !== expected[i]) return false;
+    }
+    return true;
+}
+
+function decodePresetIndex(data) {
+    const header = new Uint8Array([0xB9, 0x03, 0x81, 0x04, 0x02, 0x81]);
+    if (data.length < 20 || !bytesMatch(data, 0, header)) return null;
+    if (!bytesMatch(data, 7, PRESET_RESPONSE_PREFIX) &&
+        !bytesMatch(data, 7, ACTIVE_PRESET_EVENT_PREFIX)) return null;
+
+    let markerOffset = 13;
+    let index = data[12];
+    if (index === 0x80) {
+        index = data[13];
+        markerOffset = 14;
+        if (index < 128) return null;
+    }
+    if (index >= TOTAL_PRESETS || !bytesMatch(data, markerOffset, NAME_MARKER)) return null;
+    return index;
+}
+
+function decodePresetResponseIndex(data) {
+    return bytesMatch(data, 7, PRESET_RESPONSE_PREFIX) ? decodePresetIndex(data) : null;
+}
+
+function decodeActivePresetEventIndex(data) {
+    return bytesMatch(data, 7, ACTIVE_PRESET_EVENT_PREFIX) ? decodePresetIndex(data) : null;
+}
 
 function isCabEnabled(cabType) {
     return cabType === 0 || cabType === 1;
@@ -173,5 +208,10 @@ module.exports = {
     AMP_ENABLE_INDEX,
     CAB_TYPE_INDEX,
     FLOAT_SIZE,
-    isCabEnabled
+    isCabEnabled,
+    PRESET_RESPONSE_PREFIX,
+    ACTIVE_PRESET_EVENT_PREFIX,
+    decodePresetIndex,
+    decodePresetResponseIndex,
+    decodeActivePresetEventIndex
 };

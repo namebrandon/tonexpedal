@@ -16,8 +16,24 @@ const {
     AMP_ENABLE_INDEX,
     CAB_TYPE_INDEX,
     FLOAT_SIZE,
-    isCabEnabled
+    isCabEnabled,
+    PRESET_RESPONSE_PREFIX,
+    ACTIVE_PRESET_EVENT_PREFIX,
+    decodePresetResponseIndex,
+    decodeActivePresetEventIndex
 } = require('./helpers/tonex_protocol');
+
+function presetPayload(index, unsolicited = false) {
+    const extended = index >= 128;
+    const payload = new Uint8Array(extended ? 1190 : 1189);
+    payload.set([0xB9, 0x03, 0x81, 0x04, 0x02, 0x81, extended ? 0x9D : 0x9C], 0);
+    payload.set(unsolicited ? ACTIVE_PRESET_EVENT_PREFIX : PRESET_RESPONSE_PREFIX, 7);
+    const markerOffset = extended ? 14 : 13;
+    if (extended) payload[12] = 0x80;
+    payload[extended ? 13 : 12] = index;
+    payload.set(NAME_MARKER, markerOffset);
+    return payload;
+}
 
 describe('CRC-CCITT Calculation', () => {
     it('calculates expected CRC for Hello command payload', () => {
@@ -102,6 +118,23 @@ describe('ToneX Preset Request Commands', () => {
         assert.strictEqual(req.length, 18);
         assert.strictEqual(req[15], 0x80);
         assert.strictEqual(req[16], 130);
+    });
+});
+
+describe('ToneX Preset Response Demultiplexing', () => {
+    it('decodes solicited response indices across both encodings', () => {
+        for (const index of [0, 127, 128, 149]) {
+            assert.strictEqual(decodePresetResponseIndex(presetPayload(index)), index);
+            assert.strictEqual(decodeActivePresetEventIndex(presetPayload(index)), null);
+        }
+    });
+
+    it('separates unsolicited active-preset events from responses', () => {
+        for (const index of [0, 127, 128, 149]) {
+            const event = presetPayload(index, true);
+            assert.strictEqual(decodeActivePresetEventIndex(event), index);
+            assert.strictEqual(decodePresetResponseIndex(event), null);
+        }
     });
 });
 
