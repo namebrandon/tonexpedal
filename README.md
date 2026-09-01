@@ -22,6 +22,8 @@ Android demo vido:
 - **Full library** of 150 presets (50 banks × 3 slots A/B/C)
 - **USB Sync** — reads all names and AMP/CAB flags directly from the pedal
 - **MIDI Control** — sends Bank Select + Program Change to change presets
+- **Truthful live status** — distinguishes requested, bridge-accepted, pedal-confirmed, timed-out, and stale preset states
+- **Connection recovery** — shows browser/bridge, pedal, and library health and reconnects after network or USB interruptions
 - **Drag & drop** — assign a preset to a button, swap between buttons, or delete via trash
 - **Editing** — double-click to rename a preset and toggle AMP/CAB
 - **Search** — filtering in the library

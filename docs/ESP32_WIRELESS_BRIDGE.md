@@ -147,9 +147,12 @@ Sent when tapping a preset on the iPad:
   "bank": 0,
   "slot": "A",
   "pc": 0,
-  "channel": 0
+  "channel": 0,
+  "request_id": 42
 }
 ```
+
+`request_id` correlates the command with its acceptance or error event. Acceptance only means that the ESP32 submitted the USB-MIDI transfer; the UI waits for the pedal's CDC active-preset event before marking the preset active.
 
 #### 2. Start Full USB Preset Sync
 Sent when clicking "Sync USB" on the iPad:
@@ -166,6 +169,16 @@ Sent when clicking the sync button while a bridge sync is active:
   "action": "sync_cancel"
 }
 ```
+
+#### 4. Request Current Status
+Sent every five seconds while the page is visible, and once when a mobile browser returns from the background:
+```json
+{
+  "action": "status_request"
+}
+```
+
+If the bridge remains silent for 12 seconds, the browser closes the stale socket and enters the existing reconnect loop.
 
 ---
 
@@ -191,7 +204,19 @@ Bypass was also absent from the known read paths: repeated short State responses
 
 During a library sync, unsolicited active-preset events are dispatched immediately without consuming the pending request. Only a solicited response carrying the expected preset index advances the sync state machine; unexpected or mismatched responses fail the sync explicitly.
 
-#### 2. Sync Progress
+#### 2. MIDI Transfer Accepted
+Emitted after the ESP32 has submitted a valid MIDI transfer:
+```json
+{
+  "event": "midi_accepted",
+  "pc": 0,
+  "request_id": 42
+}
+```
+
+This is deliberately not an active-preset confirmation. A later `status` event containing the requested `active_pc` is the only success confirmation shown by the bridge UI.
+
+#### 3. Sync Progress
 Broadcasted during preset dump (150 presets):
 ```json
 {
@@ -202,7 +227,7 @@ Broadcasted during preset dump (150 presets):
 }
 ```
 
-#### 3. Preset Data
+#### 4. Preset Data
 Sends each discovered preset to populate the library:
 ```json
 {
@@ -215,12 +240,13 @@ Sends each discovered preset to populate the library:
 }
 ```
 
-#### 4. Sync Lifecycle and Errors
+#### 5. Sync Lifecycle and Errors
 The bridge emits `sync_complete` after all presets, `sync_cancelled` after cancellation, or a structured `error` event when a command cannot be completed:
 ```json
 { "event": "sync_complete", "total": 150 }
 { "event": "sync_cancelled" }
 { "event": "error", "code": "sync_unavailable", "message": "Preset sync is already active or the TONEX is disconnected" }
+{ "event": "error", "code": "midi_unavailable", "message": "The TONEX MIDI interface is not ready", "request_id": 42 }
 ```
 
 ---
@@ -238,6 +264,8 @@ if (identity.service === 'tonex-bridge' && identity.protocol_version === 1) {
 ```
 
 If discovery does not identify a bridge, preset switching and synchronization remain on the original Web MIDI and Web Serial/WebUSB path.
+
+The operator strip keeps three independent health signals visible: browser-to-bridge, bridge-to-pedal, and library freshness. Preset taps are briefly coalesced to make rapid touchscreen use deterministic. The last CDC-confirmed preset remains visible but is marked stale after a disconnect; a request is never presented as active merely because it was sent. Direct WebMIDI has no confirmation channel, so those changes are explicitly labeled unconfirmed. WebMIDI hot-plug refreshes the device list without silently selecting a different output after the active device is removed.
 
 ---
 

@@ -22,6 +22,8 @@ Démo vidéo Android :
 - **Bibliothèque complète** des 150 presets (50 banks × 3 slots A/B/C)
 - **Synchronisation USB** — lecture de tous les noms et flags AMP/CAB directement depuis le pédalier
 - **Contrôle MIDI** — envoi de Bank Select + Program Change pour changer de preset
+- **État temps réel fiable** — distingue les presets demandés, acceptés par le pont, confirmés par la pédale, expirés et périmés
+- **Reprise de connexion** — affiche l'état du pont, de la pédale et de la bibliothèque, puis se reconnecte après une interruption réseau ou USB
 - **Glisser-déposer** — assigner un preset à un bouton, swap entre boutons, ou supprimer via la corbeille
 - **Édition** — double-clic pour renommer un preset et toggler AMP/CAB
 - **Recherche** filtrante dans la bibliothèque

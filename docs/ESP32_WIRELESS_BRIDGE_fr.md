@@ -139,9 +139,12 @@ Envoyé lors d'un clic sur un preset :
   "bank": 0,
   "slot": "A",
   "pc": 0,
-  "channel": 0
+  "channel": 0,
+  "request_id": 42
 }
 ```
+
+`request_id` associe la commande à son événement d'acceptation ou d'erreur. L'acceptation signifie seulement que l'ESP32 a soumis le transfert USB-MIDI ; l'interface attend l'événement CDC de preset actif de la pédale avant de déclarer le preset actif.
 
 #### 2. Lancer la Synchronisation USB Complète
 Envoyé lors du clic sur "Sync USB" :
@@ -158,6 +161,16 @@ Envoyé lors d'un second clic sur le bouton pendant une synchronisation active :
   "action": "sync_cancel"
 }
 ```
+
+#### 4. Demander l'État Actuel
+Envoyé toutes les cinq secondes lorsque la page est visible, puis une fois quand un navigateur mobile revient au premier plan :
+```json
+{
+  "action": "status_request"
+}
+```
+
+Si le pont reste silencieux pendant 12 secondes, le navigateur ferme le socket périmé et relance la boucle de reconnexion existante.
 
 ---
 
@@ -183,7 +196,19 @@ Le bypass est également absent des chemins de lecture connus : les réponses St
 
 Pendant une synchronisation de la bibliothèque, les événements non sollicités du preset actif sont transmis immédiatement sans consommer la réponse attendue. Seule une réponse sollicitée portant l'index attendu fait avancer la machine d'état ; une réponse inattendue ou discordante interrompt explicitement la synchronisation.
 
-#### 2. Progression de la Synchronisation
+#### 2. Transfert MIDI Accepté
+Émis après la soumission d'un transfert MIDI valide par l'ESP32 :
+```json
+{
+  "event": "midi_accepted",
+  "pc": 0,
+  "request_id": 42
+}
+```
+
+Il ne s'agit volontairement pas d'une confirmation du preset actif. Seul un événement `status` ultérieur contenant l'`active_pc` demandé est affiché comme une réussite confirmée par l'interface du pont.
+
+#### 3. Progression de la Synchronisation
 Diffusé pendant la lecture des 150 presets :
 ```json
 {
@@ -194,7 +219,7 @@ Diffusé pendant la lecture des 150 presets :
 }
 ```
 
-#### 3. Données des Presets
+#### 4. Données des Presets
 Envoie chaque preset découvert pour peupler la bibliothèque :
 ```json
 {
@@ -207,12 +232,13 @@ Envoie chaque preset découvert pour peupler la bibliothèque :
 }
 ```
 
-#### 4. Fin, Annulation et Erreurs
+#### 5. Fin, Annulation et Erreurs
 Le pont émet `sync_complete` après tous les presets, `sync_cancelled` après une annulation, ou un événement `error` structuré lorsqu'une commande échoue :
 ```json
 { "event": "sync_complete", "total": 150 }
 { "event": "sync_cancelled" }
 { "event": "error", "code": "sync_unavailable", "message": "Preset sync is already active or the TONEX is disconnected" }
+{ "event": "error", "code": "midi_unavailable", "message": "The TONEX MIDI interface is not ready", "request_id": 42 }
 ```
 
 ---
@@ -223,6 +249,8 @@ L'application `index.html` utilise des adaptateurs explicites pour le matériel 
 
 - **Servie depuis l'ESP32** : elle utilise le pont WebSocket pour piloter la TONEX sans fil.
 - **Ouverte localement ou servie par un autre serveur** : elle conserve les API Web MIDI et Web Serial/WebUSB natives.
+
+La barre opérateur conserve trois signaux de santé indépendants : navigateur-vers-pont, pont-vers-pédale et fraîcheur de la bibliothèque. Les clics rapprochés sont brièvement regroupés afin de rendre l'usage rapide sur écran tactile déterministe. Le dernier preset confirmé par CDC reste visible mais est marqué périmé après une déconnexion ; une demande n'est jamais présentée comme active simplement parce qu'elle a été envoyée. Le WebMIDI direct ne fournit aucun canal de confirmation, ces changements sont donc explicitement indiqués comme non confirmés. Le branchement à chaud WebMIDI actualise la liste sans sélectionner silencieusement une autre sortie après le retrait du périphérique actif.
 
 ---
 
