@@ -260,6 +260,14 @@ npm run hardware:control-capture -- --label footswitch_b --seconds 20
 
 The recorder prints events live and limits long messages to structural metadata, a hash fingerprint, and a short prefix. It does not expose preset names or parameter data.
 
+For a focused protocol investigation, an explicit `--raw-output` opt-in retains
+complete unsolicited payloads only in a local ignored file. Never commit or share
+that export without reviewing it because it can contain pedal data:
+
+```bash
+npm run hardware:control-capture -- --label global_input_delta --seconds 45 --raw-output diagnostics/global-input.json
+```
+
 To poll the short State response and optionally fingerprint a known active preset while testing bypass:
 
 ```bash

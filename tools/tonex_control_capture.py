@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 import time
+from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 import tonex_hardware_probe as protocol
@@ -22,6 +23,7 @@ def capture_controls(
     label: str,
     event_handler: Optional[Callable[[dict], None]] = None,
     ready_handler: Optional[Callable[[], None]] = None,
+    raw_event_handler: Optional[Callable[[dict], None]] = None,
 ) -> dict:
     events = []
     with protocol.PosixSerialTransport(port, timeout=3.0) as transport:
@@ -39,6 +41,11 @@ def capture_controls(
                 summary = protocol.summarize_unsolicited_payload(payload)
                 summary["elapsed_ms"] = round((time.monotonic() - started_at) * 1000)
                 events.append(summary)
+                if raw_event_handler is not None:
+                    raw_event_handler({
+                        "elapsed_ms": summary["elapsed_ms"],
+                        "payload_hex": payload.hex(" "),
+                    })
                 if event_handler is not None:
                     event_handler(summary)
         crc_errors = transport.decoder.protocol_error_count
@@ -76,6 +83,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--port", help="USB serial device; auto-detected when exactly one is present")
     parser.add_argument("--seconds", type=positive_float, default=DEFAULT_SECONDS)
     parser.add_argument("--label", default="physical_control", help="short label for this capture phase")
+    parser.add_argument(
+        "--raw-output",
+        type=Path,
+        help=(
+            "opt-in local JSON export of complete unsolicited payloads; these can contain "
+            "preset data and must not be committed"
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="emit one JSON document after capture")
     return parser.parse_args(argv)
 
@@ -102,6 +117,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         port = args.port or protocol.discover_port()
         event_number = 0
+        raw_events = []
 
         def ready() -> None:
             if not args.json:
@@ -117,13 +133,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if not args.json:
                 print(event_line(event_number, event), flush=True)
 
+        def retain_raw_event(event: dict) -> None:
+            raw_events.append(event)
+
         result = capture_controls(
             port=port,
             seconds=args.seconds,
             label=args.label,
             event_handler=show_event,
             ready_handler=ready,
+            raw_event_handler=retain_raw_event if args.raw_output else None,
         )
+        if args.raw_output:
+            args.raw_output.parent.mkdir(parents=True, exist_ok=True)
+            args.raw_output.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "read_only": True,
+                        "label": args.label,
+                        "capture_seconds": args.seconds,
+                        "events": raw_events,
+                    },
+                    indent=2,
+                ) + "\n",
+                encoding="utf-8",
+            )
     except (OSError, protocol.ProbeError, ValueError) as exc:
         if args.json:
             print(json.dumps({"status": "error", "message": str(exc)}))

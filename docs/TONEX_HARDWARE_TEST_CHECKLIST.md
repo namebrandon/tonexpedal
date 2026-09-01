@@ -58,6 +58,17 @@ npm run hardware:control-capture -- --label bypass_on_off --seconds 20
 
 The recorder announces `capture_ready=true`, prints each event as it arrives, and reports a privacy-safe payload fingerprint. Use separate labeled runs for preset forward/backward, A/B/C, bypass, unconfirmed bank navigation, and bank selection confirmed with A/B/C.
 
+When a new message family needs decoding, an explicit `--raw-output` option can
+write complete unsolicited frames to a local file under `diagnostics/`:
+
+```bash
+npm run hardware:control-capture -- --label global_input_delta --seconds 45 --raw-output diagnostics/global-input.json
+```
+
+This is intentionally opt-in because it can contain pedal data. Files in
+`diagnostics/` are ignored by Git; inspect and sanitize any findings before retaining
+them as fixtures.
+
 To test whether a physical state appears in the known read commands, poll State and optionally fingerprint the known active preset response:
 
 ```bash
@@ -211,6 +222,13 @@ Focused bypass-state testing established a stricter limitation:
 - Sending the documented CC12 values 0 and 127, followed by a restore value of 127, produced no unsolicited CDC acknowledgement.
 - With the pedal temporarily configured for `MIDI.THRU=MERGE`, a physical bypass-off/on cycle produced no USB-MIDI messages; the setting was then restored to `OFF`.
 - The bridge can command bypass through CC12 in a future feature, but cannot confirm or track physical bypass from any currently observed USB response. Do not expose a definitive bypass status until a feedback mechanism is discovered.
+
+Focused global-setting capture established a separate live-update message family:
+
+- Changing and restoring the Global Settings **Input Trim** value emitted a 25-frame burst of 3,552-byte unsolicited CDC payloads, each with zero CRC errors. This is distinct from the 1,189-byte active-preset event family.
+- The 25 frames had no preset-name or known preset-parameter markers. Across the ordered burst, adjacent frames differed at exactly byte offset 58.
+- The observed byte at that offset stepped through `8, 16, 24, …, 112` as Input Trim changed and returned to `8` when it was restored. The mapping from this encoded value to the pedal’s displayed units remains to be decoded.
+- This proves the pedal does report at least some live global-setting changes over CDC. A future bridge feature may decode this message family, but must not treat its fields as understood until more isolated setting captures establish a stable schema.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
 
