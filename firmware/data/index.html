@@ -763,7 +763,42 @@
                     </div>
                     <span class="panel-meta" data-i18n="performanceMeta">9 assignable pads</span>
                 </div>
-                <div class="preset-grid" id="preset-grid"></div>
+                <div class="performance-workspace">
+                    <div class="preset-grid" id="preset-grid"></div>
+                    <aside class="rig-controls" aria-labelledby="rig-controls-title">
+                        <div class="rig-controls-heading">
+                            <div>
+                                <span class="section-kicker" data-i18n="rigKicker">Rig controls</span>
+                                <h3 id="rig-controls-title" data-i18n="rigTitle">Live processing</h3>
+                            </div>
+                            <span class="rig-unconfirmed" data-i18n="rigUnconfirmed">UNCONFIRMED</span>
+                        </div>
+                        <div class="rig-toggle-list">
+                            <button class="rig-toggle" type="button" data-rig-control="gate" aria-pressed="false">
+                                <span data-i18n="rigGate">Noise gate</span><span class="rig-toggle-state">—</span>
+                            </button>
+                            <button class="rig-toggle" type="button" data-rig-control="compressor" aria-pressed="false">
+                                <span data-i18n="rigCompressor">Compressor</span><span class="rig-toggle-state">—</span>
+                            </button>
+                            <button class="rig-toggle" type="button" data-rig-control="reverb" aria-pressed="false">
+                                <span data-i18n="rigReverb">Reverb</span><span class="rig-toggle-state">—</span>
+                            </button>
+                            <button class="rig-toggle" type="button" data-rig-control="cab" aria-pressed="false">
+                                <span data-i18n="rigCab">Cab simulation</span><span class="rig-toggle-state">—</span>
+                            </button>
+                        </div>
+                        <div class="rig-volume-control">
+                            <div class="rig-volume-label">
+                                <label for="rig-master-volume" data-i18n="rigMasterVolume">Master volume</label>
+                                <output id="rig-master-volume-value">—</output>
+                            </div>
+                            <input id="rig-master-volume" type="range" min="0" max="127" value="100" aria-describedby="rig-control-note">
+                            <div class="rig-volume-scale"><span>0</span><span>127</span></div>
+                        </div>
+                        <p class="rig-control-note" id="rig-control-note" data-i18n="rigControlNote">Shows the last command sent; pedal state is not read back.</p>
+                        <p class="rig-control-status" id="rig-control-status" aria-live="polite"></p>
+                    </aside>
+                </div>
             </div>
         </div>
     </div>
@@ -874,7 +909,23 @@
                 presetUnconfirmed: 'Envoyé sans confirmation : {preset}',
                 presetDisconnected: 'Sélection interrompue : connexion perdue',
                 activeConfirmed: 'confirmé',
-                activeStale: 'dernière confirmation — connexion perdue'
+                activeStale: 'dernière confirmation — connexion perdue',
+                rigKicker: 'Contrôles rig',
+                rigTitle: 'Traitement live',
+                rigUnconfirmed: 'NON CONFIRMÉ',
+                rigGate: 'Noise gate',
+                rigCompressor: 'Compresseur',
+                rigReverb: 'Réverbération',
+                rigCab: 'Simulation cab',
+                rigMasterVolume: 'Volume master',
+                rigControlNote: 'Affiche la dernière commande envoyée ; l’état de la pédale n’est pas relu.',
+                rigStateOn: 'ACTIVÉ',
+                rigStateOff: 'DÉSACTIVÉ',
+                rigStateUnknown: '—',
+                rigSent: '{control} envoyé — non confirmé',
+                rigSending: 'Envoi de {control}…',
+                rigUnavailable: 'Commandes rig indisponibles : pédale non connectée',
+                rigError: 'Échec de {control}'
             },
             en: {
                 device: 'Device:',
@@ -956,7 +1007,23 @@
                 presetUnconfirmed: 'Sent without confirmation: {preset}',
                 presetDisconnected: 'Selection interrupted: connection lost',
                 activeConfirmed: 'confirmed',
-                activeStale: 'last confirmation — connection lost'
+                activeStale: 'last confirmation — connection lost',
+                rigKicker: 'Rig controls',
+                rigTitle: 'Live processing',
+                rigUnconfirmed: 'UNCONFIRMED',
+                rigGate: 'Noise gate',
+                rigCompressor: 'Compressor',
+                rigReverb: 'Reverb',
+                rigCab: 'Cab simulation',
+                rigMasterVolume: 'Master volume',
+                rigControlNote: 'Shows the last command sent; pedal state is not read back.',
+                rigStateOn: 'ON',
+                rigStateOff: 'OFF',
+                rigStateUnknown: '—',
+                rigSent: '{control} sent — unconfirmed',
+                rigSending: 'Sending {control}…',
+                rigUnavailable: 'Rig controls unavailable: pedal disconnected',
+                rigError: 'Could not send {control}'
             }
         };
 
@@ -1004,6 +1071,7 @@
             updateOperatorHealth();
             updatePresetCommandStatus();
             updateStageUi();
+            updateRigControlUi();
         }
 
         document.getElementById('langToggle').addEventListener('click', () => {
@@ -1025,6 +1093,15 @@
         const BRIDGE_STALE_AFTER_MS = 12000;
         const PRESET_SEND_DEBOUNCE_MS = 60;
         const PRESET_CONFIRM_TIMEOUT_MS = 2500;
+        const RIG_VOLUME_THROTTLE_MS = 50;
+        const RIG_CONTROL_DEFINITIONS = Object.freeze({
+            gate: { cc: 14, label: 'rigGate' },
+            compressor: { cc: 18, label: 'rigCompressor' },
+            reverb: { cc: 75, label: 'rigReverb' },
+            // CC 117 is a bypass command: 0 enables the cabinet and 127 bypasses it.
+            cab: { cc: 117, label: 'rigCab', inverted: true },
+            volume: { cc: 122, label: 'rigMasterVolume' }
+        });
         const diagnosticsEnabled = new URLSearchParams(window.location.search).get('debug') === '1';
         const diagnosticStartedAt = performance.now();
         const diagnosticCapture = diagnosticsEnabled ? {
@@ -1076,6 +1153,19 @@
             pending: null,
             lastRequestedPc: -1,
             commandStatus: 'idle'
+        };
+        let rigRequestSequence = 0;
+        let rigVolumeTimer = null;
+        let rigVolumeQueuedValue = null;
+        let rigVolumeLastSentAt = 0;
+        const rigCommandState = {
+            controls: Object.fromEntries(Object.keys(RIG_CONTROL_DEFINITIONS).map(name => [name, {
+                value: null,
+                lastSentValue: null,
+                lastDispatchedValue: null,
+                pendingRequestId: null,
+                status: 'unknown'
+            }]))
         };
 
         function recordDiagnosticEvent(type, details = {}) {
@@ -1245,6 +1335,7 @@
             renderGrid();
             renderLibrary();
             updateStageUi();
+            updateRigControlUi();
         }
 
         function getPresetKey(bank, slot) {
@@ -1366,6 +1457,162 @@
             renderGrid();
         }
 
+        // --- Live rig controls ---
+        function rigControlEnabled(name, value) {
+            if (value === null || value === undefined) return null;
+            return RIG_CONTROL_DEFINITIONS[name].inverted ? value === 0 : value >= 64;
+        }
+
+        function rigControlLabel(name) {
+            return t(RIG_CONTROL_DEFINITIONS[name].label);
+        }
+
+        function formatRigStatus(key, name) {
+            return t(key).replace('{control}', rigControlLabel(name));
+        }
+
+        function updateRigControlUi() {
+            const transport = getActiveControlTransport();
+            const canSend = !stageModeActive && transport.isConnected();
+            const status = document.getElementById('rig-control-status');
+            let visibleStatus = null;
+            let errorVisible = false;
+
+            document.querySelectorAll('[data-rig-control]').forEach(button => {
+                const name = button.dataset.rigControl;
+                const control = rigCommandState.controls[name];
+                const enabled = rigControlEnabled(name, control.value);
+                const state = button.querySelector('.rig-toggle-state');
+                button.disabled = !canSend;
+                button.setAttribute('aria-pressed', String(enabled === true));
+                button.dataset.state = enabled === null ? 'unknown' : (enabled ? 'on' : 'off');
+                state.textContent = enabled === null ? t('rigStateUnknown') :
+                    (enabled ? t('rigStateOn') : t('rigStateOff'));
+                if (!visibleStatus && control.status === 'sending') visibleStatus = formatRigStatus('rigSending', name);
+                if (!visibleStatus && control.status === 'error') {
+                    visibleStatus = formatRigStatus('rigError', name);
+                    errorVisible = true;
+                }
+                if (!visibleStatus && control.status === 'sent') visibleStatus = formatRigStatus('rigSent', name);
+            });
+
+            const volume = rigCommandState.controls.volume;
+            const slider = document.getElementById('rig-master-volume');
+            const output = document.getElementById('rig-master-volume-value');
+            slider.disabled = !canSend;
+            if (volume.value === null) {
+                output.textContent = t('rigStateUnknown');
+                slider.setAttribute('aria-valuetext', t('rigStateUnknown'));
+            } else {
+                output.textContent = String(volume.value);
+                slider.value = String(volume.value);
+                slider.setAttribute('aria-valuetext', String(volume.value));
+                if (!visibleStatus && volume.status === 'sending') visibleStatus = formatRigStatus('rigSending', 'volume');
+                if (!visibleStatus && volume.status === 'error') {
+                    visibleStatus = formatRigStatus('rigError', 'volume');
+                    errorVisible = true;
+                }
+                if (!visibleStatus && volume.status === 'sent') visibleStatus = formatRigStatus('rigSent', 'volume');
+            }
+
+            status.textContent = visibleStatus || (!canSend ? t('rigUnavailable') : '');
+            status.dataset.state = errorVisible ? 'error' : '';
+        }
+
+        function setRigControlFailed(requestId) {
+            for (const control of Object.values(rigCommandState.controls)) {
+                if (control.pendingRequestId !== requestId) continue;
+                control.pendingRequestId = null;
+                control.value = control.lastSentValue;
+                control.lastDispatchedValue = null;
+                control.status = 'error';
+                updateRigControlUi();
+                return true;
+            }
+            return false;
+        }
+
+        function acceptRigControl(requestId, cc, value) {
+            const name = Object.keys(RIG_CONTROL_DEFINITIONS).find(key => RIG_CONTROL_DEFINITIONS[key].cc === cc);
+            if (!name) return false;
+            const control = rigCommandState.controls[name];
+            if (control.pendingRequestId !== requestId || control.value !== value) return false;
+            control.pendingRequestId = null;
+            control.lastSentValue = value;
+            control.status = 'sent';
+            updateRigControlUi();
+            return true;
+        }
+
+        function sendRigControl(name, value) {
+            const definition = RIG_CONTROL_DEFINITIONS[name];
+            const control = rigCommandState.controls[name];
+            const transport = getActiveControlTransport();
+            const requestId = ++rigRequestSequence;
+            control.value = value;
+            control.lastDispatchedValue = value;
+            control.pendingRequestId = requestId;
+            control.status = 'sending';
+            recordDiagnosticEvent('rig_control_requested', {
+                request_id: requestId,
+                transport: transport.id,
+                control: name,
+                cc: definition.cc,
+                value: value,
+                channel: midiChannel
+            });
+            updateRigControlUi();
+
+            const sent = transport.sendControlChange(definition.cc, value, midiChannel, requestId);
+            if (!sent) {
+                setRigControlFailed(requestId);
+                return false;
+            }
+            if (transport === localHardwareTransport) acceptRigControl(requestId, definition.cc, value);
+            return true;
+        }
+
+        function flushRigVolume() {
+            rigVolumeTimer = null;
+            const value = rigVolumeQueuedValue;
+            rigVolumeQueuedValue = null;
+            if (value === null || value === rigCommandState.controls.volume.lastDispatchedValue) return;
+            rigVolumeLastSentAt = performance.now();
+            sendRigControl('volume', value);
+            if (rigVolumeQueuedValue !== null) queueRigVolume(rigVolumeQueuedValue);
+        }
+
+        function queueRigVolume(value) {
+            rigCommandState.controls.volume.value = value;
+            rigCommandState.controls.volume.status = 'sending';
+            rigVolumeQueuedValue = value;
+            updateRigControlUi();
+            if (rigVolumeTimer) return;
+            const elapsed = performance.now() - rigVolumeLastSentAt;
+            rigVolumeTimer = setTimeout(flushRigVolume, Math.max(0, RIG_VOLUME_THROTTLE_MS - elapsed));
+        }
+
+        function initRigControls() {
+            document.querySelectorAll('[data-rig-control]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const name = button.dataset.rigControl;
+                    const current = rigControlEnabled(name, rigCommandState.controls[name].value);
+                    const desired = current !== true;
+                    const value = RIG_CONTROL_DEFINITIONS[name].inverted ? (desired ? 0 : 127) : (desired ? 127 : 0);
+                    sendRigControl(name, value);
+                });
+            });
+            const volume = document.getElementById('rig-master-volume');
+            volume.addEventListener('input', () => queueRigVolume(Number(volume.value)));
+            volume.addEventListener('change', () => {
+                if (rigVolumeTimer) {
+                    clearTimeout(rigVolumeTimer);
+                    flushRigVolume();
+                }
+            });
+            updateRigControlUi();
+        }
+
         // --- Hardware control transports ---
         const localHardwareTransport = {
             id: 'local',
@@ -1404,6 +1651,21 @@
                 }
             },
 
+            sendControlChange(control, value, channel, requestId) {
+                if (!midiOutput) return false;
+                const message = [0xB0 + channel, control, value];
+                recordDiagnosticEvent('midi_cc_send', {
+                    transport: 'webmidi', cc: control, value: value, channel: channel, request_id: requestId
+                });
+                try {
+                    midiOutput.send(message);
+                    return true;
+                } catch (error) {
+                    recordDiagnosticEvent('midi_cc_send_failed', { request_id: requestId, message: error.message });
+                    return false;
+                }
+            },
+
             syncPresets() {
                 return syncLocalUSB();
             }
@@ -1435,6 +1697,21 @@
                         request_id: requestId,
                         message: error.message
                     });
+                    return false;
+                }
+            },
+
+            sendControlChange(control, value, channel, requestId) {
+                if (!this.isConnected()) return false;
+                const message = {
+                    action: 'midi_cc', cc: control, value: value, channel: channel, request_id: requestId
+                };
+                recordDiagnosticEvent('bridge_tx', { message: message });
+                try {
+                    wsBridge.send(JSON.stringify(message));
+                    return true;
+                } catch (error) {
+                    recordDiagnosticEvent('bridge_send_failed', { request_id: requestId, message: error.message });
                     return false;
                 }
             },
@@ -1647,6 +1924,8 @@
                             updateOperatorHealth();
                         } else if (data.event === 'midi_accepted') {
                             applyPresetCommandEvent({ type: 'accepted', requestId: data.request_id });
+                        } else if (data.event === 'midi_cc_accepted') {
+                            acceptRigControl(data.request_id, data.cc, data.value);
                         } else if (data.event === 'sync_started') {
                             bridgePendingSyncRequestId = null;
                             beginBridgeSync(data.owner_client_id ?? bridgeClientId);
@@ -1670,10 +1949,12 @@
                                     finishBridgeSync(t('syncError') + errorMessage, 0, false);
                                 }
                             } else if (data.request_id !== undefined) {
-                                if (presetCommandState.pending && presetCommandState.pending.requestId === data.request_id) {
+                                if (setRigControlFailed(data.request_id)) {
+                                    // Rig controls are confirmed only at the USB transport layer.
+                                } else if (presetCommandState.pending && presetCommandState.pending.requestId === data.request_id) {
                                     clearPresetTimers();
+                                    applyPresetCommandEvent({ type: 'failed', requestId: data.request_id });
                                 }
-                                applyPresetCommandEvent({ type: 'failed', requestId: data.request_id });
                             }
                         } else if (data.event === 'preset_update') {
                             const key = getPresetKey(data.bank, data.slot);
@@ -1700,6 +1981,10 @@
                     isBridgeConnected = false;
                     isBridgeToneXConnected = false;
                     clearPresetTimers();
+                    for (const control of Object.values(rigCommandState.controls)) {
+                        if (control.pendingRequestId !== null) control.status = 'error';
+                        control.pendingRequestId = null;
+                    }
                     applyPresetCommandEvent({ type: 'disconnected' });
                     if (libraryFreshness === 'current') libraryFreshness = 'stale';
                     removeBridgeDeviceOption();
@@ -1709,6 +1994,7 @@
                         finishBridgeSync(t('syncError') + t('bridgeDisconnected'), 0, false);
                     }
                     updateOperatorHealth();
+                    updateRigControlUi();
                     scheduleBridgeReconnect();
                 };
 
@@ -1892,6 +2178,7 @@
                 txt.textContent = connected ? t('connected') : t('disconnected');
             }
             updateOperatorHealth();
+            updateRigControlUi();
         }
 
         function setHealthChip(id, text, status) {
@@ -3042,6 +3329,7 @@
         applyLang();
         renderGrid();
         renderLibrary();
+        initRigControls();
         initMIDI();
         initWebSocketBridge();
 
