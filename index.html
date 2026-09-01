@@ -1165,6 +1165,10 @@
                                 activePresetSlot = data.active_slot !== undefined ? data.active_slot : SLOTS[data.active_pc % 3];
                                 updateActivePresetDisplay();
                                 renderLibrary();
+                            } else {
+                                activePresetPC = -1;
+                                updateActivePresetDisplay();
+                                renderLibrary();
                             }
                         } else if (data.event === 'sync_progress') {
                             const ui = syncUiElements();

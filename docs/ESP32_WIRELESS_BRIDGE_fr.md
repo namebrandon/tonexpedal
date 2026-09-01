@@ -161,8 +161,8 @@ Envoyé lors d'un second clic sur le bouton pendant une synchronisation active :
 
 ### 5.2 ESP32 -> Client (Événements & Mises à Jour)
 
-#### 1. État de Connexion
-Diffusé lors de la connexion du client ou de la pédale :
+#### 1. État de Connexion et du Preset Actif
+Diffusé lors de la connexion du client, de la connexion/déconnexion USB ou d'un événement CDC non sollicité confirmant un preset :
 ```json
 {
   "event": "status",
@@ -172,6 +172,8 @@ Diffusé lors de la connexion du client ou de la pédale :
   "active_slot": "A"
 }
 ```
+
+Les champs du preset actif sont omis tant que le pont n'a pas observé d'événement de preset. Cela évite de supposer à tort le preset 0 lors d'une nouvelle connexion. Les changements effectués depuis les footswitches, un autre contrôleur MIDI ou l'interface Web sont ensuite reflétés dans tous les navigateurs connectés.
 
 #### 2. Progression de la Synchronisation
 Diffusé pendant la lecture des 150 presets :

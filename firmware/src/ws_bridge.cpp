@@ -20,7 +20,7 @@ void WsBridge::begin(AsyncWebServer* server) {
     _ws.onEvent([this](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
         if (type == WS_EVT_CONNECT) {
             // Send initial status
-            broadcastStatus(ToneX.isConnected());
+            broadcastStatus(ToneX.isConnected(), ToneX.activePreset());
         } else if (type == WS_EVT_DATA) {
             AwsFrameInfo* info = (AwsFrameInfo*)arg;
             if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
@@ -35,7 +35,7 @@ void WsBridge::begin(AsyncWebServer* server) {
     // Link ToneX callbacks to WebSocket broadcasts
     ToneX.onConnectionChange([this](bool connected) {
         StatusLed.setState(connected ? LedState::TONEX_CONNECTED : LedState::WIFI_CONNECTED);
-        broadcastStatus(connected);
+        broadcastStatus(connected, ToneX.activePreset());
     });
 
     ToneX.onSyncProgress([this](uint8_t loaded, uint8_t total) {
@@ -55,17 +55,23 @@ void WsBridge::begin(AsyncWebServer* server) {
     ToneX.onPresetReceived([this](const ToneXPresetInfo& info) {
         broadcastPreset(info.bank, info.slot, info.name, info.amp, info.cab);
     });
+
+    ToneX.onActivePresetChange([this](uint8_t presetIndex) {
+        broadcastStatus(ToneX.isConnected(), presetIndex);
+    });
 }
 #endif
 
-void WsBridge::broadcastStatus(bool tonexConnected, uint8_t activePc) {
+void WsBridge::broadcastStatus(bool tonexConnected, int16_t activePc) {
     JsonDocument doc;
     doc["event"] = "status";
     doc["tonex_connected"] = tonexConnected;
-    doc["active_pc"] = activePc;
-    ToneXHDLC::BankSlot bs = ToneXHDLC::bankSlotFromPC(activePc);
-    doc["active_bank"] = bs.bank;
-    doc["active_slot"] = std::string(1, bs.slot);
+    if (activePc >= 0 && activePc < TONEX_TOTAL_PRESETS) {
+        doc["active_pc"] = activePc;
+        ToneXHDLC::BankSlot bs = ToneXHDLC::bankSlotFromPC(static_cast<uint8_t>(activePc));
+        doc["active_bank"] = bs.bank;
+        doc["active_slot"] = std::string(1, bs.slot);
+    }
 
     std::string out;
     serializeJson(doc, out);

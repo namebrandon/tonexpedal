@@ -28,6 +28,7 @@ public:
     typedef std::function<void(uint8_t total)> SyncCompleteCallback;
     typedef std::function<void(const std::string& message)> SyncErrorCallback;
     typedef std::function<void(const ToneXPresetInfo& info)> PresetReceivedCallback;
+    typedef std::function<void(uint8_t presetIndex)> ActivePresetCallback;
 
     ToneXUsbHost();
     ~ToneXUsbHost();
@@ -36,6 +37,7 @@ public:
     void loop();
 
     bool isConnected() const;
+    int16_t activePreset() const;
 
     // MIDI
     bool sendBankSelectAndPC(uint8_t bank, char slot, uint8_t channel = 0);
@@ -51,12 +53,14 @@ public:
     void onSyncComplete(SyncCompleteCallback cb);
     void onSyncError(SyncErrorCallback cb);
     void onPresetReceived(PresetReceivedCallback cb);
+    void onActivePresetChange(ActivePresetCallback cb);
 
 private:
     volatile bool _connected;
     volatile bool _syncing;
     uint8_t _syncIndex;
     uint32_t _lastSyncStepMs;
+    int16_t _activePreset;
 
 #ifndef NATIVE_TEST
     bool _hostInstalled;
@@ -80,6 +84,8 @@ private:
     TaskHandle_t _syncTaskHandle;
     volatile uint16_t _midiTransfersInFlight;
     volatile uint16_t _cdcOutTransfersInFlight;
+    std::vector<uint8_t> _cdcFrameBuffer;
+    bool _cdcInsideFrame;
 
     static void libraryTask(void* arg);
     static void clientEventCallback(const usb_host_client_event_msg_t* event, void* arg);
@@ -100,6 +106,7 @@ private:
     static void syncTask(void* arg);
     void runSync();
     void failSync(const std::string& message);
+    void handleCdcEvent(const std::vector<uint8_t>& payload);
 #endif
 
     ConnectionCallback _connCb;
@@ -107,9 +114,10 @@ private:
     SyncCompleteCallback _completeCb;
     SyncErrorCallback _syncErrorCb;
     PresetReceivedCallback _presetCb;
+    ActivePresetCallback _activePresetCb;
 
     bool sendCdcFrame(const std::vector<uint8_t>& frame);
-    std::vector<uint8_t> readCdcFrame(uint32_t timeoutMs);
+    std::vector<uint8_t> readCdcFrame(uint32_t timeoutMs, bool syncOnly = true);
 };
 
 extern ToneXUsbHost ToneX;

@@ -139,6 +139,13 @@ void test_decode_preset_index_boundaries(void) {
             uint8_t decoded = 0xFF;
             TEST_ASSERT_TRUE(ToneXHDLC::decodePresetIndex(response.data(), response.size(), decoded));
             TEST_ASSERT_EQUAL_UINT8(index, decoded);
+            if (unsolicited) {
+                TEST_ASSERT_TRUE(ToneXHDLC::decodeActivePresetEvent(response.data(), response.size(), decoded));
+                TEST_ASSERT_FALSE(ToneXHDLC::decodePresetResponseIndex(response.data(), response.size(), decoded));
+            } else {
+                TEST_ASSERT_TRUE(ToneXHDLC::decodePresetResponseIndex(response.data(), response.size(), decoded));
+                TEST_ASSERT_FALSE(ToneXHDLC::decodeActivePresetEvent(response.data(), response.size(), decoded));
+            }
         }
     }
 }

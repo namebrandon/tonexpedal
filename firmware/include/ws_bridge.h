@@ -16,7 +16,7 @@ public:
     void begin(AsyncWebServer* server);
 #endif
 
-    void broadcastStatus(bool tonexConnected, uint8_t activePc = 0);
+    void broadcastStatus(bool tonexConnected, int16_t activePc = -1);
     void broadcastSyncProgress(uint8_t loaded, uint8_t total);
     void broadcastSyncComplete(uint8_t total);
     void broadcastSyncCancelled();

@@ -125,6 +125,8 @@ The same pedal also completed a restore-protected CoreMIDI boundary probe from a
 - The bank transition used Bank Select 0 / Program 127 for index 127 and Bank Select 1 / Program 0 for index 128.
 - The pedal emitted no CoreMIDI feedback messages.
 - Every MIDI change emitted a full unsolicited CDC preset event with decoded indices `0`, `127`, `128`, `149`, and restored `0`.
+- The same events were emitted immediately after opening CDC without a Hello/State handshake.
+- Manual pedal navigation emitted indices `1` and `0` when advancing one preset and returning to the first preset.
 - Solicited and unsolicited preset payloads encode indices 0–127 at byte 12. Indices 128–149 use an `0x80` extension at byte 12 and the raw index at byte 13.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice

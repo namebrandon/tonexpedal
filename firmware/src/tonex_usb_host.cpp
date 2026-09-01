@@ -21,7 +21,7 @@ static void delay(uint32_t ms) {
 ToneXUsbHost ToneX;
 
 ToneXUsbHost::ToneXUsbHost()
-    : _connected(false), _syncing(false), _syncIndex(0), _lastSyncStepMs(0)
+    : _connected(false), _syncing(false), _syncIndex(0), _lastSyncStepMs(0), _activePreset(-1)
 #ifndef NATIVE_TEST
     , _hostInstalled(false), _clientHandle(nullptr), _deviceHandle(nullptr), _goneDeviceHandle(nullptr), _libraryTaskHandle(nullptr),
       _midiInterfaceNumber(0xFF), _midiAlternateSetting(0), _midiEndpointOut(0),
@@ -29,7 +29,7 @@ ToneXUsbHost::ToneXUsbHost()
       _cdcDataInterfaceNumber(0xFF), _cdcDataAlternateSetting(0),
       _cdcEndpointIn(0), _cdcEndpointOut(0), _cdcEndpointInMaxPacket(0),
       _cdcReady(false), _cdcRxStream(nullptr), _cdcInTransfer(nullptr), _syncTaskHandle(nullptr),
-      _midiTransfersInFlight(0), _cdcOutTransfersInFlight(0)
+      _midiTransfersInFlight(0), _cdcOutTransfersInFlight(0), _cdcInsideFrame(false)
 #endif
 {}
 
@@ -57,6 +57,7 @@ bool ToneXUsbHost::begin() {
         _hostInstalled = false;
         return false;
     }
+    _cdcFrameBuffer.reserve(1536);
 
     BaseType_t taskCreated = xTaskCreatePinnedToCore(
         libraryTask,
@@ -108,6 +109,13 @@ void ToneXUsbHost::loop() {
         }
     }
     cleanupGoneDevice();
+    if (_connected && _cdcReady && !_syncing && !_syncTaskHandle) {
+        for (uint8_t count = 0; count < 4; count++) {
+            const std::vector<uint8_t> payload = readCdcFrame(0, false);
+            if (payload.empty()) break;
+            handleCdcEvent(payload);
+        }
+    }
 #endif
 
 }
@@ -175,6 +183,7 @@ void ToneXUsbHost::handleNewDevice(uint8_t address) {
     }
 
     _deviceHandle = device;
+    _activePreset = -1;
     claimMidiInterface(configuration);
     claimCdcInterfaces(configuration);
     _connected = true;
@@ -189,6 +198,7 @@ void ToneXUsbHost::handleDeviceGone(usb_device_handle_t device) {
     _syncing = false;
     _syncIndex = 0;
     _connected = false;
+    _activePreset = -1;
     _cdcReady = false;
     _goneDeviceHandle = device;
     Serial.println("[USB] TONEX disconnected");
@@ -445,6 +455,8 @@ bool ToneXUsbHost::claimCdcInterfaces(const usb_config_desc_t* config) {
     );
 
     if (_cdcRxStream) xStreamBufferReset(_cdcRxStream);
+    _cdcFrameBuffer.clear();
+    _cdcInsideFrame = false;
     if (_cdcControlInterfaceNumber != 0xFF) {
         return submitCdcControlRequest(0x20); // SET_LINE_CODING
     }
@@ -591,6 +603,8 @@ void ToneXUsbHost::resetClaimedInterfaces() {
     _cdcEndpointOut = 0;
     _cdcEndpointInMaxPacket = 0;
     _cdcReady = false;
+    _cdcFrameBuffer.clear();
+    _cdcInsideFrame = false;
 }
 
 void ToneXUsbHost::cleanupGoneDevice() {
@@ -649,6 +663,8 @@ void ToneXUsbHost::runSync() {
     };
 
     if (_cdcRxStream) xStreamBufferReset(_cdcRxStream);
+    _cdcFrameBuffer.clear();
+    _cdcInsideFrame = false;
 
     if (!sendPayload(ToneXHDLC::HELLO_CMD, sizeof(ToneXHDLC::HELLO_CMD))) {
         failSync("Unable to send the TONEX hello command");
@@ -685,6 +701,12 @@ void ToneXUsbHost::runSync() {
             return;
         }
 
+        uint8_t responseIndex = 0;
+        if (!ToneXHDLC::decodePresetResponseIndex(response.data(), response.size(), responseIndex) || responseIndex != index) {
+            failSync("Received the wrong response for preset " + std::to_string(index));
+            return;
+        }
+
         ToneXHDLC::PresetData preset;
         if (!ToneXHDLC::decodePresetResponse(response.data(), response.size(), preset)) {
             failSync("Could not decode preset " + std::to_string(index));
@@ -717,10 +739,34 @@ void ToneXUsbHost::failSync(const std::string& message) {
     Serial.printf("[USB] Preset sync failed: %s\n", message.c_str());
     if (_syncErrorCb) _syncErrorCb(message);
 }
+
+void ToneXUsbHost::handleCdcEvent(const std::vector<uint8_t>& payload) {
+    uint8_t presetIndex = 0;
+    if (!ToneXHDLC::decodeActivePresetEvent(payload.data(), payload.size(), presetIndex)) return;
+
+    _activePreset = presetIndex;
+    ToneXHDLC::PresetData preset;
+    if (ToneXHDLC::decodePresetResponse(payload.data(), payload.size(), preset)) {
+        const ToneXHDLC::BankSlot location = ToneXHDLC::bankSlotFromPC(presetIndex);
+        ToneXPresetInfo info;
+        info.bank = location.bank;
+        info.slot = location.slot;
+        info.name = preset.name;
+        info.amp = preset.amp;
+        info.cab = preset.cab;
+        if (_presetCb) _presetCb(info);
+    }
+    Serial.printf("[USB] Active preset event: index=%u\n", presetIndex);
+    if (_activePresetCb) _activePresetCb(presetIndex);
+}
 #endif
 
 bool ToneXUsbHost::isConnected() const {
     return _connected;
+}
+
+int16_t ToneXUsbHost::activePreset() const {
+    return _activePreset;
 }
 
 bool ToneXUsbHost::sendBankSelectAndPC(uint8_t bank, char slot, uint8_t channel) {
@@ -794,6 +840,10 @@ void ToneXUsbHost::onPresetReceived(PresetReceivedCallback cb) {
     _presetCb = cb;
 }
 
+void ToneXUsbHost::onActivePresetChange(ActivePresetCallback cb) {
+    _activePresetCb = cb;
+}
+
 bool ToneXUsbHost::sendCdcFrame(const std::vector<uint8_t>& frame) {
 #ifdef NATIVE_TEST
     (void)frame;
@@ -827,39 +877,44 @@ bool ToneXUsbHost::sendCdcFrame(const std::vector<uint8_t>& frame) {
 #endif
 }
 
-std::vector<uint8_t> ToneXUsbHost::readCdcFrame(uint32_t timeoutMs) {
+std::vector<uint8_t> ToneXUsbHost::readCdcFrame(uint32_t timeoutMs, bool syncOnly) {
 #ifdef NATIVE_TEST
     (void)timeoutMs;
+    (void)syncOnly;
     return {};
 #else
     if (!_cdcRxStream) return {};
 
-    std::vector<uint8_t> frame;
-    frame.reserve(512);
-    bool insideFrame = false;
     const uint32_t startedAt = millis();
-
-    while (_connected && _syncing && millis() - startedAt < timeoutMs) {
+    while (_connected && (!syncOnly || _syncing)) {
+        if (timeoutMs > 0 && millis() - startedAt >= timeoutMs) break;
         uint8_t byte = 0;
-        const size_t received = xStreamBufferReceive(_cdcRxStream, &byte, 1, pdMS_TO_TICKS(50));
-        if (received == 0) continue;
+        const TickType_t waitTicks = timeoutMs > 0 ? pdMS_TO_TICKS(50) : 0;
+        const size_t received = xStreamBufferReceive(_cdcRxStream, &byte, 1, waitTicks);
+        if (received == 0) {
+            if (timeoutMs == 0) break;
+            continue;
+        }
 
         if (byte == 0x7E) {
-            if (!insideFrame) {
-                frame.clear();
-                frame.push_back(byte);
-                insideFrame = true;
-            } else if (frame.size() > 1) {
-                frame.push_back(byte);
-                std::vector<uint8_t> payload = ToneXHDLC::deframe(frame.data(), frame.size());
+            if (!_cdcInsideFrame) {
+                _cdcFrameBuffer.clear();
+                _cdcFrameBuffer.push_back(byte);
+                _cdcInsideFrame = true;
+            } else if (_cdcFrameBuffer.size() > 1) {
+                _cdcFrameBuffer.push_back(byte);
+                std::vector<uint8_t> payload = ToneXHDLC::deframe(
+                    _cdcFrameBuffer.data(),
+                    _cdcFrameBuffer.size()
+                );
+                _cdcFrameBuffer.assign(1, 0x7E);
                 if (!payload.empty()) return payload;
-                frame.assign(1, 0x7E);
             }
-        } else if (insideFrame) {
-            frame.push_back(byte);
-            if (frame.size() > 8192) {
-                frame.clear();
-                insideFrame = false;
+        } else if (_cdcInsideFrame) {
+            _cdcFrameBuffer.push_back(byte);
+            if (_cdcFrameBuffer.size() > 16384) {
+                _cdcFrameBuffer.clear();
+                _cdcInsideFrame = false;
             }
         }
     }

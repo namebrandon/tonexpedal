@@ -30,6 +30,8 @@ namespace ToneXHDLC {
     std::string decodePresetName(const uint8_t* nameBytes, size_t length);
     float readFloat32(const uint8_t* bytes, size_t offset);
     bool decodePresetIndex(const uint8_t* data, size_t length, uint8_t& index);
+    bool decodePresetResponseIndex(const uint8_t* data, size_t length, uint8_t& index);
+    bool decodeActivePresetEvent(const uint8_t* data, size_t length, uint8_t& index);
 
     struct PresetData {
         std::string name;

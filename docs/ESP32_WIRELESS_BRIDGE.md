@@ -169,8 +169,8 @@ Sent when clicking the sync button while a bridge sync is active:
 
 ### 5.2 ESP32 -> Client (Events & Updates)
 
-#### 1. Connection Status
-Broadcasted on client connect or USB connect/disconnect:
+#### 1. Connection and Active-Preset Status
+Broadcasted on client connect, USB connect/disconnect, or a confirmed unsolicited CDC preset event:
 ```json
 {
   "event": "status",
@@ -180,6 +180,8 @@ Broadcasted on client connect or USB connect/disconnect:
   "active_slot": "A"
 }
 ```
+
+The active-preset fields are omitted until the bridge has observed a preset event. This prevents a new connection from incorrectly assuming preset 0. Changes made from the pedal footswitches, another MIDI controller, or the web UI are then reflected in every connected browser.
 
 #### 2. Sync Progress
 Broadcasted during preset dump (150 presets):

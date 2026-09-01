@@ -161,6 +161,20 @@ namespace ToneXHDLC {
         return true;
     }
 
+    bool decodePresetResponseIndex(const uint8_t* data, size_t length, uint8_t& index) {
+        static const uint8_t RESPONSE_PREFIX[] = {0x04, 0x10, 0xB9, 0x03, 0x01};
+        return data && length >= 12 &&
+            std::memcmp(data + 7, RESPONSE_PREFIX, sizeof(RESPONSE_PREFIX)) == 0 &&
+            decodePresetIndex(data, length, index);
+    }
+
+    bool decodeActivePresetEvent(const uint8_t* data, size_t length, uint8_t& index) {
+        static const uint8_t EVENT_PREFIX[] = {0x04, 0x02, 0xB9, 0x03, 0x00};
+        return data && length >= 12 &&
+            std::memcmp(data + 7, EVENT_PREFIX, sizeof(EVENT_PREFIX)) == 0 &&
+            decodePresetIndex(data, length, index);
+    }
+
     bool decodePresetResponse(const uint8_t* data, size_t length, PresetData& preset) {
         constexpr size_t NAME_LENGTH = 32;
         constexpr size_t FLOAT_SIZE = 5;
