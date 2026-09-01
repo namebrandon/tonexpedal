@@ -13,11 +13,13 @@ SPEC.loader.exec_module(probe)
 
 
 class HardwareProbeProtocolTests(unittest.TestCase):
-    def preset_payload(self, index, length=None):
+    def preset_payload(self, index, length=None, unsolicited=False):
         extended = index >= 128
         payload = bytearray(length or (1190 if extended else 1189))
         payload[:12] = bytes.fromhex("b9 03 81 04 02 81 00 04 10 b9 03 01")
         payload[6] = 0x9D if extended else 0x9C
+        if unsolicited:
+            payload[7:12] = probe.ACTIVE_PRESET_EVENT_PREFIX
         if extended:
             payload[12:14] = bytes([0x80, index])
             name_marker_offset = 14
@@ -95,9 +97,26 @@ class HardwareProbeProtocolTests(unittest.TestCase):
                 )
 
     def test_parses_unsolicited_active_preset_event_index(self):
-        payload = self.preset_payload(149)
-        payload[7:12] = bytes.fromhex("04 02 b9 03 00")
-        self.assertEqual(probe.parse_preset_index(bytes(payload)), 149)
+        payload = bytes(self.preset_payload(149, unsolicited=True))
+        self.assertEqual(probe.parse_active_preset_event_index(payload), 149)
+        with self.assertRaisesRegex(probe.ProtocolError, "solicited"):
+            probe.parse_preset_response_index(payload)
+
+    def test_transport_demultiplexes_active_event_before_response(self):
+        event = bytes(self.preset_payload(149, unsolicited=True))
+        response = bytes(self.preset_payload(42))
+        frames = iter([event, response])
+        transport = probe.PosixSerialTransport("unused", timeout=1.0)
+        transport._read_frame = lambda label, timeout=None: next(frames)
+        active_events = []
+
+        result = transport._read_matching_frame(
+            "preset 42",
+            lambda payload: probe.parse_preset_response_index(payload) == 42,
+            active_events.append,
+        )
+        self.assertEqual(result, response)
+        self.assertEqual(active_events, [149])
 
     def test_rejects_mismatched_preset_response_index(self):
         payload = self.preset_payload(128)

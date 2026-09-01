@@ -14,7 +14,7 @@ import sys
 import time
 from collections import Counter, deque
 from dataclasses import asdict, dataclass
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
 
 HELLO_CMD = bytes.fromhex("b9 03 00 82 04 00 80 10 01 b9 02 02 10")
@@ -27,6 +27,8 @@ FLOAT_SIZE = 5
 TOTAL_PRESETS = 150
 DEFAULT_PRESETS = (0, 127, 128, 149)
 MAX_FRAME_BYTES = 16384
+PRESET_RESPONSE_PREFIX = bytes.fromhex("04 10 b9 03 01")
+ACTIVE_PRESET_EVENT_PREFIX = bytes.fromhex("04 02 b9 03 00")
 
 
 class ProbeError(RuntimeError):
@@ -136,8 +138,8 @@ def create_preset_request(index: int) -> bytes:
 def parse_preset_index(payload: bytes) -> int:
     prefix = bytes.fromhex("b9 03 81 04 02 81")
     body_prefixes = {
-        bytes.fromhex("04 10 b9 03 01"),  # solicited preset response
-        bytes.fromhex("04 02 b9 03 00"),  # unsolicited active-preset event
+        PRESET_RESPONSE_PREFIX,
+        ACTIVE_PRESET_EVENT_PREFIX,
     }
     if len(payload) < 14 or not payload.startswith(prefix):
         raise ProtocolError("Preset response has an invalid header")
@@ -159,8 +161,20 @@ def parse_preset_index(payload: bytes) -> int:
     return index
 
 
+def parse_preset_response_index(payload: bytes) -> int:
+    if len(payload) < 12 or payload[7:12] != PRESET_RESPONSE_PREFIX:
+        raise ProtocolError("Payload is not a solicited preset response")
+    return parse_preset_index(payload)
+
+
+def parse_active_preset_event_index(payload: bytes) -> int:
+    if len(payload) < 12 or payload[7:12] != ACTIVE_PRESET_EVENT_PREFIX:
+        raise ProtocolError("Payload is not an active-preset event")
+    return parse_preset_index(payload)
+
+
 def parse_preset_response(index: int, payload: bytes, include_name: bool = False) -> PresetResult:
-    response_index = parse_preset_index(payload)
+    response_index = parse_preset_response_index(payload)
     if response_index != index:
         raise ProtocolError(
             f"Preset response index {response_index} does not match request index {index}"
@@ -279,7 +293,13 @@ class PosixSerialTransport:
         os.close(self.fd)
         self.fd = None
 
-    def exchange(self, payload: bytes, label: str) -> bytes:
+    def exchange(
+        self,
+        payload: bytes,
+        label: str,
+        response_matcher: Optional[Callable[[bytes], bool]] = None,
+        active_event_handler: Optional[Callable[[int], None]] = None,
+    ) -> bytes:
         if self.fd is None:
             raise ProbeError("Serial transport is not open")
 
@@ -290,16 +310,36 @@ class PosixSerialTransport:
             termios.tcdrain(self.fd)
         except OSError as exc:
             raise ProbeError(f"Could not send {label}: {exc}") from exc
-        return self._read_frame(label)
+        return self._read_matching_frame(label, response_matcher, active_event_handler)
 
-    def _read_frame(self, label: str) -> bytes:
+    def _read_matching_frame(
+        self,
+        label: str,
+        response_matcher: Optional[Callable[[bytes], bool]],
+        active_event_handler: Optional[Callable[[int], None]],
+    ) -> bytes:
+        deadline = time.monotonic() + self.timeout
+        while time.monotonic() < deadline:
+            remaining = max(0.0, deadline - time.monotonic())
+            candidate = self._read_frame(label, remaining)
+            if len(candidate) >= 12 and candidate[7:12] == ACTIVE_PRESET_EVENT_PREFIX:
+                active_index = parse_active_preset_event_index(candidate)
+                if active_event_handler is not None:
+                    active_event_handler(active_index)
+                continue
+            if response_matcher is not None and not response_matcher(candidate):
+                raise ProtocolError(f"Received an unexpected response to {label}")
+            return candidate
+        raise ProbeError(f"Timed out waiting for {label}")
+
+    def _read_frame(self, label: str, timeout: Optional[float] = None) -> bytes:
         if self.fd is None:
             raise ProbeError("Serial transport is not open")
 
         if self.decoded_payloads:
             return self.decoded_payloads.popleft()
 
-        deadline = time.monotonic() + self.timeout
+        deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
         while time.monotonic() < deadline:
             remaining = max(0.0, deadline - time.monotonic())
             readable, _, _ = select.select([self.fd], [], [], remaining)
@@ -352,14 +392,36 @@ def run_probe(
     include_names: bool,
 ) -> dict:
     results = []
+    active_preset_events = []
     with PosixSerialTransport(port, timeout) as transport:
-        hello = transport.exchange(HELLO_CMD, "hello response")
+        hello = transport.exchange(
+            HELLO_CMD,
+            "hello response",
+            active_event_handler=active_preset_events.append,
+        )
         time.sleep(0.2)
-        state = transport.exchange(REQUEST_STATE_CMD, "state response")
+        state = transport.exchange(
+            REQUEST_STATE_CMD,
+            "state response",
+            active_event_handler=active_preset_events.append,
+        )
         time.sleep(0.2)
 
         for index in preset_indices:
-            payload = transport.exchange(create_preset_request(index), f"preset {index}")
+            def matches_requested_preset(candidate: bytes, expected: int = index) -> bool:
+                response_index = parse_preset_response_index(candidate)
+                if response_index != expected:
+                    raise ProtocolError(
+                        f"Preset response index {response_index} does not match request index {expected}"
+                    )
+                return True
+
+            payload = transport.exchange(
+                create_preset_request(index),
+                f"preset {index}",
+                response_matcher=matches_requested_preset,
+                active_event_handler=active_preset_events.append,
+            )
             results.append(asdict(parse_preset_response(index, payload, include_names)))
             time.sleep(0.04)
 
@@ -375,6 +437,7 @@ def run_probe(
         "state_payload_bytes": len(state),
         "presets_checked": len(results),
         "presets": results,
+        "active_preset_events": active_preset_events,
     }
 
 
@@ -424,6 +487,7 @@ def summarize_cycle(cycle: int, duration_seconds: float, result: dict) -> dict:
         "amp_enabled": sum(1 for preset in presets if preset["amp"]),
         "cab_enabled": sum(1 for preset in presets if preset["cab"]),
         "cab_type_counts": dict(sorted(Counter(preset["cab_type"] for preset in presets).items())),
+        "active_preset_events": result.get("active_preset_events", []),
     }
 
 
@@ -531,6 +595,8 @@ def print_human(result: dict) -> None:
         if "name" in preset:
             fields.append(f"name={json.dumps(preset['name'], ensure_ascii=False)}")
         print(" ".join(fields))
+    if result.get("active_preset_events"):
+        print(f"active_preset_events={result['active_preset_events']}")
     print(f"result=ok presets_checked={result['presets_checked']} port_closed=true")
 
 
@@ -540,6 +606,7 @@ def print_soak_human(result: dict) -> None:
         print(
             "cycle={cycle} result=ok duration_ms={duration_ms} presets_checked={presets_checked} "
             "payload_byte_counts={payload_byte_counts} cab_type_counts={cab_type_counts} "
+            "active_preset_events={active_preset_events} "
             "port_closed=true".format(**cycle)
         )
     print(
