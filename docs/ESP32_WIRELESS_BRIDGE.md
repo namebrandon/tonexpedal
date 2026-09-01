@@ -6,7 +6,9 @@ The goal of this sub-project is to transform the **TONEX Pedal Controller** into
 
 By connecting a small **ESP32-S3** microcontroller board to the TONEX Pedal via USB, the ESP32 acts as a self-contained web server, WebSocket bridge, and USB Host. This enables full remote preset browsing, editing, library sync, and real-time switching from any device on your LAN (e.g. iPad on couch, smartphone on stage, or desktop browser) with **zero latency** and **no host computer required**.
 
-> **Implementation status:** the complete firmware path is implemented: WLAN hosting, bridge discovery, WebSocket messaging, physical USB enumeration, USB-MIDI output, CDC bulk transport, and the 150-preset synchronization state machine. USB descriptor matching, MIDI behavior, and CDC responses still require validation on a physical pedal before the bridge should be considered hardware-ready.
+> **Implementation status:** the complete firmware path is implemented: WLAN hosting, bridge discovery, WebSocket messaging, physical USB enumeration, USB-MIDI output, CDC bulk transport, and the 150-preset synchronization state machine. USB descriptor matching, MIDI transfers, and CDC responses still require validation through the physical ESP32 host before the bridge should be considered hardware-ready.
+
+The full-size pedal's MIDI encoding and CDC response/event formats have now been validated directly on macOS. Physical ESP32 descriptor claiming and endpoint behavior remain pending until the board is available.
 
 ```
 ┌────────────────────────────────┐
@@ -182,6 +184,8 @@ Broadcasted on client connect, USB connect/disconnect, or a confirmed unsolicite
 ```
 
 The active-preset fields are omitted until the bridge has observed a preset event. This prevents a new connection from incorrectly assuming preset 0. Changes made from the pedal footswitches, another MIDI controller, or the web UI are then reflected in every connected browser.
+
+During a library sync, unsolicited active-preset events are dispatched immediately without consuming the pending request. Only a solicited response carrying the expected preset index advances the sync state machine; unexpected or mismatched responses fail the sync explicitly.
 
 #### 2. Sync Progress
 Broadcasted during preset dump (150 presets):

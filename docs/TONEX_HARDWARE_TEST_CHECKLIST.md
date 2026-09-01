@@ -129,6 +129,7 @@ The same pedal also completed a restore-protected CoreMIDI boundary probe from a
 - Manual pedal navigation emitted indices `1` and `0` when advancing one preset and returning to the first preset.
 - Solicited and unsolicited preset payloads encode indices 0–127 at byte 12. Indices 128–149 use an `0x80` extension at byte 12 and the raw index at byte 13.
 - A full `150/150` preset read completed while MIDI injected indices `0`, `127`, `128`, `149`, and restored `0`; the CDC demultiplexer dispatched all five active events without misassigning them to pending preset requests.
+- A burst run repeated that boundary sequence three times during one full read; all `150/150` responses and all 15 active events arrived in order with no drops.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
 

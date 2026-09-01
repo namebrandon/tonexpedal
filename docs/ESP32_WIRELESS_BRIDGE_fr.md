@@ -6,7 +6,9 @@ L'objectif de ce sous-projet est de transformer le **TONEX Pedal Controller** en
 
 En connectant une carte microcontrôleur **ESP32-S3** à la pédale TONEX via USB, l'ESP32 agit comme un serveur web autonome, un pont WebSocket et un hôte USB (USB Host). Cela permet la navigation, l'édition, la synchronisation de la bibliothèque et le changement de presets en temps réel depuis n'importe quel appareil connecté au réseau local (iPad sur le canapé, smartphone sur scène, ou navigateur d'ordinateur) avec **une latence imperceptible** et **sans nécessiter d'ordinateur hôte**.
 
-> **État de l'implémentation :** le chemin firmware complet est implémenté : hébergement WLAN, découverte du pont, messages WebSocket, énumération physique USB, sortie USB-MIDI, transport CDC bulk et synchronisation des 150 presets. La correspondance des descripteurs, le comportement MIDI et les réponses CDC doivent encore être validés sur une pédale physique avant de considérer le pont prêt matériellement.
+> **État de l'implémentation :** le chemin firmware complet est implémenté : hébergement WLAN, découverte du pont, messages WebSocket, énumération physique USB, sortie USB-MIDI, transport CDC bulk et synchronisation des 150 presets. La correspondance des descripteurs, les transferts MIDI et les réponses CDC doivent encore être validés via l'hôte ESP32 physique avant de considérer le pont prêt matériellement.
+
+L'encodage MIDI et les formats de réponses/événements CDC de la pédale grand format ont maintenant été validés directement sous macOS. La revendication des descripteurs et le comportement des endpoints sur l'ESP32 restent à valider lorsque la carte sera disponible.
 
 ```
 ┌────────────────────────────────┐
@@ -174,6 +176,8 @@ Diffusé lors de la connexion du client, de la connexion/déconnexion USB ou d'u
 ```
 
 Les champs du preset actif sont omis tant que le pont n'a pas observé d'événement de preset. Cela évite de supposer à tort le preset 0 lors d'une nouvelle connexion. Les changements effectués depuis les footswitches, un autre contrôleur MIDI ou l'interface Web sont ensuite reflétés dans tous les navigateurs connectés.
+
+Pendant une synchronisation de la bibliothèque, les événements non sollicités du preset actif sont transmis immédiatement sans consommer la réponse attendue. Seule une réponse sollicitée portant l'index attendu fait avancer la machine d'état ; une réponse inattendue ou discordante interrompt explicitement la synchronisation.
 
 #### 2. Progression de la Synchronisation
 Diffusé pendant la lecture des 150 presets :
