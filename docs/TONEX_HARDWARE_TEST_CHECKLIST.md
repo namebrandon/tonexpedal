@@ -34,6 +34,14 @@ npm run hardware:inventory
 
 The inventory deliberately omits the pedal serial number, location, session identifier, and raw descriptor signature. IORegistry exposes endpoint counts but not endpoint addresses or transfer types, so those remain pending until the ESP32 host descriptor log is available.
 
+To observe the pedal's MIDI output without transmitting anything, run:
+
+```bash
+npm run hardware:midi-monitor -- --seconds 10
+```
+
+This is safe to leave running while operating the pedal controls. A received Program Change can establish the currently selected preset; no MIDI switching test should run until that preset can be identified and restored.
+
 ## 1. Original Direct-MIDI Path
 
 - Select the TONEX MIDI output and confirm the status turns green.
