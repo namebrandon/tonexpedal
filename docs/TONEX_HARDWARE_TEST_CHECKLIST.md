@@ -42,7 +42,21 @@ npm run hardware:midi-monitor -- --seconds 10
 
 This is safe to leave running while operating the pedal controls. A received Program Change can establish the currently selected preset; no MIDI switching test should run until that preset can be identified and restored.
 
+To monitor unsolicited CDC events after a read-only handshake, run:
+
+```bash
+npm run hardware:probe -- --listen-seconds 15
+```
+
+Short events are shown in full; longer events are limited to a 12-byte structural prefix so preset content is not exposed. Full preset events are decoded to a `preset_index` without printing their names or parameter data.
+
 ## 1. Original Direct-MIDI Path
+
+When the current preset index is known, the macOS boundary probe can exercise all MIDI encoding boundaries and restore that preset even if a send fails:
+
+```bash
+npm run hardware:midi-probe -- --restore-index 0
+```
 
 - Select the TONEX MIDI output and confirm the status turns green.
 - Select `00A` and verify the pedal changes to the expected preset.
@@ -104,6 +118,14 @@ On 2026-08-31, a full-size TONEX Pedal (`VID 0x1963`, `PID 0x0068`) completed 10
 - Full-library cycle times ranged from `8.918` to `9.035` seconds.
 - Presets 0–127 returned 1,189-byte payloads; presets 128–149 returned 1,190-byte payloads because of the extended request/response index encoding.
 - No preset names or raw response payloads were retained.
+
+The same pedal also completed a restore-protected CoreMIDI boundary probe from an initial display of `0.A`:
+
+- MIDI indices `0`, `127`, `128`, and `149` were accepted, followed by restoration to index `0`.
+- The bank transition used Bank Select 0 / Program 127 for index 127 and Bank Select 1 / Program 0 for index 128.
+- The pedal emitted no CoreMIDI feedback messages.
+- Every MIDI change emitted a full unsolicited CDC preset event with decoded indices `0`, `127`, `128`, `149`, and restored `0`.
+- Solicited and unsolicited preset payloads encode indices 0–127 at byte 12. Indices 128–149 use an `0x80` extension at byte 12 and the raw index at byte 13.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
 

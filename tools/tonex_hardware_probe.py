@@ -133,7 +133,38 @@ def create_preset_request(index: int) -> bytes:
     return bytes(request)
 
 
+def parse_preset_index(payload: bytes) -> int:
+    prefix = bytes.fromhex("b9 03 81 04 02 81")
+    body_prefixes = {
+        bytes.fromhex("04 10 b9 03 01"),  # solicited preset response
+        bytes.fromhex("04 02 b9 03 00"),  # unsolicited active-preset event
+    }
+    if len(payload) < 14 or not payload.startswith(prefix):
+        raise ProtocolError("Preset response has an invalid header")
+    if payload[7:12] not in body_prefixes:
+        raise ProtocolError("Preset response has an invalid body prefix")
+
+    if payload[12] == 0x80:
+        index = payload[13]
+        expected_name_offset = 14
+        if index < 128:
+            raise ProtocolError(f"Preset response has non-canonical extended index {index}")
+    else:
+        index = payload[12]
+        expected_name_offset = 13
+    if not 0 <= index < TOTAL_PRESETS:
+        raise ProtocolError(f"Preset response has out-of-range index {index}")
+    if payload[expected_name_offset : expected_name_offset + len(NAME_MARKER)] != NAME_MARKER:
+        raise ProtocolError("Preset response index is not followed by the name marker")
+    return index
+
+
 def parse_preset_response(index: int, payload: bytes, include_name: bool = False) -> PresetResult:
+    response_index = parse_preset_index(payload)
+    if response_index != index:
+        raise ProtocolError(
+            f"Preset response index {response_index} does not match request index {index}"
+        )
     name_marker_offset = payload.find(NAME_MARKER)
     if name_marker_offset < 0:
         raise ProtocolError(f"Preset {index} response is missing the name marker")
@@ -291,6 +322,28 @@ class PosixSerialTransport:
             )
         raise ProbeError(f"Timed out waiting for {label}")
 
+    def read_frames_for(self, duration: float) -> list[bytes]:
+        """Collect unsolicited frames without writing another command."""
+        if self.fd is None:
+            raise ProbeError("Serial transport is not open")
+
+        payloads = list(self.decoded_payloads)
+        self.decoded_payloads.clear()
+        deadline = time.monotonic() + duration
+        while time.monotonic() < deadline:
+            remaining = max(0.0, deadline - time.monotonic())
+            readable, _, _ = select.select([self.fd], [], [], remaining)
+            if not readable:
+                break
+            try:
+                chunk = os.read(self.fd, 4096)
+            except BlockingIOError:
+                continue
+            except OSError as exc:
+                raise ProbeError(f"Could not read unsolicited response: {exc}") from exc
+            payloads.extend(self.decoder.feed(chunk))
+        return payloads
+
 
 def run_probe(
     port: str,
@@ -322,6 +375,38 @@ def run_probe(
         "state_payload_bytes": len(state),
         "presets_checked": len(results),
         "presets": results,
+    }
+
+
+def summarize_unsolicited_payload(payload: bytes) -> dict:
+    summary = {"payload_bytes": len(payload)}
+    try:
+        summary["preset_index"] = parse_preset_index(payload)
+    except ProtocolError:
+        pass
+    if len(payload) <= 64:
+        summary["payload_hex"] = payload.hex(" ")
+    else:
+        summary["payload_prefix_hex"] = payload[:12].hex(" ")
+    return summary
+
+
+def run_passive_listener(port: str, timeout: float, listen_seconds: float) -> dict:
+    with PosixSerialTransport(port, timeout) as transport:
+        hello = transport.exchange(HELLO_CMD, "hello response")
+        time.sleep(0.2)
+        state = transport.exchange(REQUEST_STATE_CMD, "state response")
+        events = transport.read_frames_for(listen_seconds)
+    return {
+        "status": "ok",
+        "read_only": True,
+        "port": port,
+        "baud_rate": 115200,
+        "hello_payload_bytes": len(hello),
+        "state_payload_bytes": len(state),
+        "listen_seconds": listen_seconds,
+        "event_count": len(events),
+        "events": [summarize_unsolicited_payload(payload) for payload in events],
     }
 
 
@@ -413,6 +498,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help=f"validate all {TOTAL_PRESETS} presets",
     )
+    selection.add_argument(
+        "--listen-seconds",
+        type=positive_float,
+        help="handshake, then passively collect unsolicited CDC frames",
+    )
     parser.add_argument("--timeout", type=positive_float, default=3.0, help="response timeout in seconds")
     parser.add_argument(
         "--repeat",
@@ -463,7 +553,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         port = args.port or discover_port()
         indices = range(TOTAL_PRESETS) if args.all else (args.presets or DEFAULT_PRESETS)
-        if args.repeat == 1:
+        if args.listen_seconds is not None:
+            if args.repeat != 1 or args.show_names:
+                raise ProbeError("--listen-seconds cannot be combined with --repeat or --show-names")
+            result = run_passive_listener(port, args.timeout, args.listen_seconds)
+        elif args.repeat == 1:
             result = run_probe(port, indices, args.timeout, args.show_names)
         else:
             if args.show_names:
@@ -478,6 +572,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    elif args.listen_seconds is not None:
+        print(f"port={result['port']} baud={result['baud_rate']} read_only=true")
+        print(f"hello=ok payload_bytes={result['hello_payload_bytes']}")
+        print(f"state=ok payload_bytes={result['state_payload_bytes']}")
+        for index, event in enumerate(result["events"], start=1):
+            fields = [f"event={index}", f"payload_bytes={event['payload_bytes']}"]
+            if "preset_index" in event:
+                fields.append(f"preset_index={event['preset_index']}")
+            if "payload_hex" in event:
+                fields.append(f"payload_hex={event['payload_hex']}")
+            else:
+                fields.append(f"payload_prefix_hex={event['payload_prefix_hex']}")
+            print(" ".join(fields))
+        print(f"result=ok events={result['event_count']} port_closed=true")
     elif args.repeat > 1:
         print_soak_human(result)
     else:

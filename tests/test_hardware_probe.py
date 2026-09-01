@@ -13,6 +13,20 @@ SPEC.loader.exec_module(probe)
 
 
 class HardwareProbeProtocolTests(unittest.TestCase):
+    def preset_payload(self, index, length=None):
+        extended = index >= 128
+        payload = bytearray(length or (1190 if extended else 1189))
+        payload[:12] = bytes.fromhex("b9 03 81 04 02 81 00 04 10 b9 03 01")
+        payload[6] = 0x9D if extended else 0x9C
+        if extended:
+            payload[12:14] = bytes([0x80, index])
+            name_marker_offset = 14
+        else:
+            payload[12] = index
+            name_marker_offset = 13
+        payload[name_marker_offset : name_marker_offset + len(probe.NAME_MARKER)] = probe.NAME_MARKER
+        return payload
+
     def test_frame_round_trip_and_crc_rejection(self):
         payload = bytes([0x10, 0x7D, 0x7E, 0x20])
         framed = probe.build_frame(payload)
@@ -51,6 +65,19 @@ class HardwareProbeProtocolTests(unittest.TestCase):
         self.assertEqual(decoder.feed(b"\x7e" + b"x" * 9), [])
         self.assertEqual(decoder.feed(probe.build_frame(b"valid")), [b"valid"])
 
+    def test_unsolicited_payload_summary_limits_long_payload_data(self):
+        short = probe.summarize_unsolicited_payload(bytes.fromhex("b9 01 00"))
+        self.assertEqual(short, {"payload_bytes": 3, "payload_hex": "b9 01 00"})
+
+        long_payload = bytes(range(100))
+        long = probe.summarize_unsolicited_payload(long_payload)
+        self.assertEqual(long["payload_bytes"], 100)
+        self.assertEqual(long["payload_prefix_hex"], bytes(range(12)).hex(" "))
+        self.assertNotIn("payload_hex", long)
+
+        preset = probe.summarize_unsolicited_payload(bytes(self.preset_payload(149)))
+        self.assertEqual(preset["preset_index"], 149)
+
     def test_preset_request_boundary_encoding(self):
         preset_127 = probe.create_preset_request(127)
         preset_128 = probe.create_preset_request(128)
@@ -59,9 +86,30 @@ class HardwareProbeProtocolTests(unittest.TestCase):
         self.assertEqual(len(preset_128), 18)
         self.assertEqual(preset_128[-3:], bytes([0x80, 128, 0]))
 
+    def test_parses_live_preset_response_index_encoding_boundaries(self):
+        for index in (0, 127, 128, 149):
+            with self.subTest(index=index):
+                self.assertEqual(
+                    probe.parse_preset_index(bytes(self.preset_payload(index))),
+                    index,
+                )
+
+    def test_parses_unsolicited_active_preset_event_index(self):
+        payload = self.preset_payload(149)
+        payload[7:12] = bytes.fromhex("04 02 b9 03 00")
+        self.assertEqual(probe.parse_preset_index(bytes(payload)), 149)
+
+    def test_rejects_mismatched_preset_response_index(self):
+        payload = self.preset_payload(128)
+        name_offset = 14 + len(probe.NAME_MARKER)
+        payload[name_offset : name_offset + 5] = b"Test\0"
+        parameter_offset = 60
+        payload[parameter_offset : parameter_offset + len(probe.PARAM_MARKER)] = probe.PARAM_MARKER
+        with self.assertRaisesRegex(probe.ProtocolError, "does not match"):
+            probe.parse_preset_response(127, bytes(payload))
+
     def test_parses_sanitized_live_response_shape(self):
-        payload = bytearray(1190)
-        payload[13 : 13 + len(probe.NAME_MARKER)] = probe.NAME_MARKER
+        payload = self.preset_payload(0, length=1190)
         name_offset = 13 + len(probe.NAME_MARKER)
         payload[name_offset : name_offset + 12] = b"Test Preset\0"
 
@@ -90,9 +138,9 @@ class HardwareProbeProtocolTests(unittest.TestCase):
         self.assertEqual(result.cab_type, "disabled")
 
     def test_rejects_obsolete_parameter_marker(self):
-        payload = bytearray(200)
-        payload[: len(probe.NAME_MARKER)] = probe.NAME_MARKER
-        payload[len(probe.NAME_MARKER) : len(probe.NAME_MARKER) + 5] = b"Test\0"
+        payload = self.preset_payload(0, length=200)
+        name_offset = 13 + len(probe.NAME_MARKER)
+        payload[name_offset : name_offset + 5] = b"Test\0"
         payload[60:64] = bytes.fromhex("ba 03 ba 6d")
         with self.assertRaisesRegex(probe.ProtocolError, "parameter marker"):
             probe.parse_preset_response(0, bytes(payload))
