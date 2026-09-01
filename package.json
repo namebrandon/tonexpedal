@@ -8,6 +8,7 @@
     "hardware:inventory": "python3 tools/tonex_usb_inventory.py",
     "hardware:midi-monitor": "swift tools/tonex_midi_monitor.swift",
     "hardware:midi-probe": "swift tools/tonex_midi_probe.swift",
+    "hardware:midi-stress": "python3 tools/tonex_midi_stress.py",
     "diagnostics:summary": "node tools/summarize_diagnostic.js"
   },
   "keywords": [
