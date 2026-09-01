@@ -165,6 +165,31 @@ Run the JavaScript protocol and math test suite:
 npm test
 ```
 
+To exercise the wireless application before ESP32 hardware is available, start the
+desktop bridge simulator and open the printed localhost URL:
+
+```bash
+npm install
+npm run simulator
+```
+
+The simulator serves the production frontend and models pedal connection changes,
+private command acknowledgements, shared preset confirmations, sync ownership, and
+missing or failed confirmations. Its deterministic control endpoint accepts:
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/simulator \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"pedal_disconnect"}'
+
+curl -X POST http://127.0.0.1:8787/api/simulator \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"set_confirmation_mode","mode":"drop"}'
+```
+
+Supported actions are `pedal_connect`, `pedal_disconnect`, `set_confirmation_mode`
+(`normal`, `drop`, or `error`), `close_clients`, and `reset`.
+
 Run native C++ unit tests (PlatformIO):
 ```bash
 python3 -m pip install -r requirements-dev.txt

@@ -11,3 +11,6 @@ firmware/include/wifi_secrets.h
 # Python development-tool caches
 __pycache__/
 *.pyc
+
+# Local Node.js dependencies
+node_modules/
