@@ -119,14 +119,14 @@ describe('Preset command bridge contract', () => {
         assert.match(frontend, /action: 'midi_send'[\s\S]*?request_id: requestId/);
         assert.match(frontend, /data\.event === 'midi_accepted'/);
         assert.match(firmware, /doc\["event"\] = "midi_accepted"/);
-        assert.match(firmware, /broadcastError\("midi_invalid"[^;]*requestId\)/);
+        assert.match(firmware, /sendError\(clientId, "midi_invalid"[^;]*requestId\)/);
     });
 
     it('does not publish active status merely because USB accepted a MIDI command', () => {
         const midiAction = firmware.match(/if \(strcmp\(action, "midi_send"\) == 0\) \{[\s\S]*?\n\s*\} else if/);
         assert.ok(midiAction, 'midi_send action block was not found');
         assert.doesNotMatch(midiAction[0], /broadcastStatus/);
-        assert.match(midiAction[0], /broadcastMidiAccepted/);
+        assert.match(midiAction[0], /sendMidiAccepted\(clientId/);
     });
 
     it('polls bridge health and supports firmware status requests', () => {
@@ -134,7 +134,27 @@ describe('Preset command bridge contract', () => {
         assert.match(frontend, /action: 'status_request'/);
         assert.match(frontend, /bridgeLastMessageAt/);
         assert.match(firmware, /strcmp\(action, "status_request"\)/);
-        assert.match(firmware, /broadcastStatus\(ToneX\.isConnected\(\), ToneX\.activePreset\(\)\)/);
+        assert.match(firmware, /sendStatus\(clientId, ToneX\.isConnected\(\), ToneX\.activePreset\(\)\)/);
+    });
+
+    it('keeps command responses private while broadcasting shared pedal state', () => {
+        const accepted = firmware.match(/void WsBridge::sendMidiAccepted[\s\S]*?\n\}/);
+        const error = firmware.match(/void WsBridge::sendError[\s\S]*?\n\}/);
+        const status = firmware.match(/void WsBridge::broadcastStatus[\s\S]*?\n\}/);
+        assert.ok(accepted && error && status);
+        assert.match(accepted[0], /_ws\.text\(clientId/);
+        assert.match(error[0], /_ws\.text\(clientId/);
+        assert.doesNotMatch(accepted[0], /textAll/);
+        assert.doesNotMatch(error[0], /textAll/);
+        assert.match(status[0], /_ws\.textAll/);
+    });
+
+    it('assigns sync ownership and prevents an observer from cancelling it', () => {
+        assert.match(frontend, /bridgeSyncOwnerClientId/);
+        assert.match(frontend, /ownerClientId === bridgeClientId/);
+        assert.match(firmware, /_syncOwnerClientId != clientId/);
+        assert.match(firmware, /"sync_not_owner"/);
+        assert.match(firmware, /WS_EVT_DISCONNECT[\s\S]*?_syncOwnerClientId == client->id\(\)/);
     });
 
     it('refreshes direct WebMIDI outputs when devices are connected or removed', () => {

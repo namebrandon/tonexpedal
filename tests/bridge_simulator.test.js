@@ -64,12 +64,24 @@ describe('Desktop bridge simulator', () => {
         first.socket.send(JSON.stringify({
             action: 'midi_send', bank: 1, slot: 'B', channel: 0, request_id: 7
         }));
+        second.socket.send(JSON.stringify({
+            action: 'midi_send', bank: 2, slot: 'C', channel: 0, request_id: 7
+        }));
 
-        const accepted = await waitFor(first.messages, message => message.event === 'midi_accepted');
-        assert.strictEqual(accepted.request_id, 7);
-        assert.strictEqual(accepted.pc, 4);
-        await waitFor(second.messages, message => message.event === 'status' && message.active_pc === 4);
-        assert.strictEqual(second.messages.some(message => message.event === 'midi_accepted'), false);
+        const firstAccepted = await waitFor(first.messages, message => message.event === 'midi_accepted');
+        const secondAccepted = await waitFor(second.messages, message => message.event === 'midi_accepted');
+        assert.deepStrictEqual(
+            { request_id: firstAccepted.request_id, pc: firstAccepted.pc },
+            { request_id: 7, pc: 4 }
+        );
+        assert.deepStrictEqual(
+            { request_id: secondAccepted.request_id, pc: secondAccepted.pc },
+            { request_id: 7, pc: 8 }
+        );
+        assert.strictEqual(first.messages.some(message => message.event === 'midi_accepted' && message.pc === 8), false);
+        assert.strictEqual(second.messages.some(message => message.event === 'midi_accepted' && message.pc === 4), false);
+        await waitFor(first.messages, message => message.event === 'status' && message.active_pc === 8);
+        await waitFor(second.messages, message => message.event === 'status' && message.active_pc === 8);
     });
 
     it('simulates dropped confirmation and pedal disconnect recovery', async () => {

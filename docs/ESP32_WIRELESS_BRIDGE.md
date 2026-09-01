@@ -158,7 +158,8 @@ Sent when tapping a preset on the iPad:
 Sent when clicking "Sync USB" on the iPad:
 ```json
 {
-  "action": "sync_start"
+  "action": "sync_start",
+  "request_id": 8
 }
 ```
 
@@ -166,7 +167,8 @@ Sent when clicking "Sync USB" on the iPad:
 Sent when clicking the sync button while a bridge sync is active:
 ```json
 {
-  "action": "sync_cancel"
+  "action": "sync_cancel",
+  "request_id": 9
 }
 ```
 
@@ -185,16 +187,22 @@ If the bridge remains silent for 12 seconds, the browser closes the stale socket
 ### 5.2 ESP32 -> Client (Events & Updates)
 
 #### 1. Connection and Active-Preset Status
-Broadcasted on client connect, USB connect/disconnect, or a confirmed unsolicited CDC preset event:
+Sent privately on client connect or a status request, and broadcast after USB
+connect/disconnect or a confirmed unsolicited CDC preset event:
 ```json
 {
   "event": "status",
+  "client_id": 17,
   "tonex_connected": true,
   "active_pc": 0,
   "active_bank": 0,
   "active_slot": "A"
 }
 ```
+
+The connection-local form includes `client_id`; shared status broadcasts omit it.
+The browser retains this identity to determine whether it owns an active library
+sync.
 
 The active-preset fields are omitted until the bridge has observed a preset event. This prevents a new connection from incorrectly assuming preset 0. Changes made from the pedal footswitches, another MIDI controller, or the web UI are then reflected in every connected browser.
 
@@ -205,7 +213,8 @@ Bypass was also absent from the known read paths: repeated short State responses
 During a library sync, unsolicited active-preset events are dispatched immediately without consuming the pending request. Only a solicited response carrying the expected preset index advances the sync state machine; unexpected or mismatched responses fail the sync explicitly.
 
 #### 2. MIDI Transfer Accepted
-Emitted after the ESP32 has submitted a valid MIDI transfer:
+Sent only to the requesting browser after the ESP32 has submitted a valid MIDI
+transfer:
 ```json
 {
   "event": "midi_accepted",
@@ -223,7 +232,8 @@ Broadcasted during preset dump (150 presets):
   "event": "sync_progress",
   "loaded": 45,
   "total": 150,
-  "percent": 30
+  "percent": 30,
+  "owner_client_id": 17
 }
 ```
 
@@ -241,11 +251,17 @@ Sends each discovered preset to populate the library:
 ```
 
 #### 5. Sync Lifecycle and Errors
-The bridge emits `sync_complete` after all presets, `sync_cancelled` after cancellation, or a structured `error` event when a command cannot be completed:
+The requesting browser first receives a private `sync_started` acknowledgement.
+Progress, preset data, completion, and cancellation are shared because the pedal
+and its library are shared state. Only the owner may cancel; if that browser
+disconnects, the firmware cancels the abandoned sync so another browser can start
+one. Command errors remain private to the requester.
+
 ```json
-{ "event": "sync_complete", "total": 150 }
-{ "event": "sync_cancelled" }
-{ "event": "error", "code": "sync_unavailable", "message": "Preset sync is already active or the TONEX is disconnected" }
+{ "event": "sync_started", "owner_client_id": 17, "total": 150, "request_id": 8 }
+{ "event": "sync_complete", "total": 150, "owner_client_id": 17 }
+{ "event": "sync_cancelled", "owner_client_id": 17 }
+{ "event": "error", "code": "sync_not_owner", "message": "Only the browser that started sync can cancel it", "request_id": 9 }
 { "event": "error", "code": "midi_unavailable", "message": "The TONEX MIDI interface is not ready", "request_id": 42 }
 ```
 

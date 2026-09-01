@@ -814,6 +814,7 @@
                 bankLabel: 'Bank ',
                 syncTitle: 'Synchroniser les noms de presets via USB',
                 cancelSync: 'ANNULER SYNC',
+                syncObserved: 'SYNC EN COURS',
                 portOpening: 'Ouverture port...',
                 syncDone: 'Termin\u00e9! ',
                 syncPresetsRead: ' presets lus',
@@ -887,6 +888,7 @@
                 bankLabel: 'Bank ',
                 syncTitle: 'Sync preset names via USB',
                 cancelSync: 'CANCEL SYNC',
+                syncObserved: 'SYNC IN PROGRESS',
                 portOpening: 'Opening port...',
                 syncDone: 'Done! ',
                 syncPresetsRead: ' presets read',
@@ -1034,6 +1036,10 @@
         let bridgeHeartbeatTimer = null;
         let bridgeLastMessageAt = 0;
         let bridgeSyncActive = false;
+        let bridgeClientId = null;
+        let bridgeSyncOwnerClientId = null;
+        let bridgeSyncRequestSequence = 0;
+        let bridgePendingSyncRequestId = null;
         let syncProgressHideTimer = null;
         let presetDispatchTimer = null;
         let presetConfirmTimer = null;
@@ -1316,7 +1322,9 @@
 
             syncPresets() {
                 if (!this.isConnected()) return false;
-                const message = { action: 'sync_start' };
+                const requestId = ++bridgeSyncRequestSequence;
+                const message = { action: 'sync_start', request_id: requestId };
+                bridgePendingSyncRequestId = requestId;
                 recordDiagnosticEvent('bridge_tx', { message: message });
                 wsBridge.send(JSON.stringify(message));
                 return true;
@@ -1324,7 +1332,9 @@
 
             cancelSync() {
                 if (!this.isConnected()) return false;
-                const message = { action: 'sync_cancel' };
+                const requestId = ++bridgeSyncRequestSequence;
+                const message = { action: 'sync_cancel', request_id: requestId };
+                bridgePendingSyncRequestId = requestId;
                 recordDiagnosticEvent('bridge_tx', { message: message });
                 wsBridge.send(JSON.stringify(message));
                 return true;
@@ -1373,12 +1383,15 @@
             };
         }
 
-        function beginBridgeSync() {
+        function beginBridgeSync(ownerClientId = null) {
             const ui = syncUiElements();
             if (syncProgressHideTimer) clearTimeout(syncProgressHideTimer);
             bridgeSyncActive = true;
+            bridgeSyncOwnerClientId = ownerClientId;
             libraryFreshness = 'syncing';
-            ui.button.textContent = t('cancelSync');
+            const canCancel = ownerClientId === null || ownerClientId === bridgeClientId;
+            ui.button.textContent = canCancel ? t('cancelSync') : t('syncObserved');
+            ui.button.disabled = !canCancel;
             ui.progress.classList.add('active');
             ui.fill.style.width = '0%';
             ui.text.textContent = t('syncInProgress');
@@ -1388,7 +1401,10 @@
         function finishBridgeSync(message, percent, autoHide = true) {
             const ui = syncUiElements();
             bridgeSyncActive = false;
+            bridgeSyncOwnerClientId = null;
+            bridgePendingSyncRequestId = null;
             ui.button.textContent = t('syncButton');
+            ui.button.disabled = false;
             ui.progress.classList.add('active');
             ui.fill.style.width = Math.max(0, Math.min(100, percent || 0)) + '%';
             ui.text.textContent = message;
@@ -1493,6 +1509,7 @@
                         const data = JSON.parse(event.data);
                         recordDiagnosticEvent('bridge_rx', { message: data });
                         if (data.event === 'status') {
+                            if (data.client_id !== undefined) bridgeClientId = data.client_id;
                             isBridgeToneXConnected = !!data.tonex_connected;
                             updateMIDIStatus(isBridgeToneXConnected, true);
                             if (!isBridgeToneXConnected) {
@@ -1511,9 +1528,12 @@
                             updateOperatorHealth();
                         } else if (data.event === 'midi_accepted') {
                             applyPresetCommandEvent({ type: 'accepted', requestId: data.request_id });
+                        } else if (data.event === 'sync_started') {
+                            bridgePendingSyncRequestId = null;
+                            beginBridgeSync(data.owner_client_id ?? bridgeClientId);
                         } else if (data.event === 'sync_progress') {
                             const ui = syncUiElements();
-                            if (!bridgeSyncActive) beginBridgeSync();
+                            if (!bridgeSyncActive) beginBridgeSync(data.owner_client_id ?? null);
                             ui.fill.style.width = (data.percent || 0) + '%';
                             ui.text.textContent = (data.loaded || 0) + ' / ' + (data.total || TOTAL_PRESETS) + '...';
                         } else if (data.event === 'sync_complete') {
@@ -1525,14 +1545,16 @@
                             finishBridgeSync(t('syncCancelled'), 0);
                         } else if (data.event === 'error') {
                             const errorMessage = data.message || data.code || 'Unknown bridge error';
-                            if (data.request_id !== undefined) {
+                            if (String(data.code || '').startsWith('sync_')) {
+                                if (data.request_id === undefined || data.request_id === bridgePendingSyncRequestId || bridgeSyncActive) {
+                                    libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
+                                    finishBridgeSync(t('syncError') + errorMessage, 0, false);
+                                }
+                            } else if (data.request_id !== undefined) {
                                 if (presetCommandState.pending && presetCommandState.pending.requestId === data.request_id) {
                                     clearPresetTimers();
                                 }
                                 applyPresetCommandEvent({ type: 'failed', requestId: data.request_id });
-                            } else if (bridgeSyncActive || String(data.code || '').startsWith('sync_')) {
-                                libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
-                                finishBridgeSync(t('syncError') + errorMessage, 0, false);
                             }
                         } else if (data.event === 'preset_update') {
                             const key = getPresetKey(data.bank, data.slot);
@@ -1553,6 +1575,9 @@
                     recordDiagnosticEvent('bridge_disconnected');
                     stopBridgeHeartbeat();
                     wsBridge = null;
+                    bridgeClientId = null;
+                    bridgeSyncOwnerClientId = null;
+                    bridgePendingSyncRequestId = null;
                     isBridgeConnected = false;
                     isBridgeToneXConnected = false;
                     clearPresetTimers();
@@ -2479,11 +2504,12 @@
             const activeTransport = getActiveControlTransport();
             if (activeTransport === bridgeTransport) {
                 if (bridgeSyncActive) {
-                    activeTransport.cancelSync();
+                    if (bridgeSyncOwnerClientId === null || bridgeSyncOwnerClientId === bridgeClientId) {
+                        activeTransport.cancelSync();
+                    }
                     return;
                 }
 
-                beginBridgeSync();
                 if (!activeTransport.syncPresets()) {
                     libraryFreshness = Object.keys(state.presets).length > 0 ? 'stale' : 'empty';
                     finishBridgeSync(t('syncError') + t('bridgeDisconnected'), 0, false);

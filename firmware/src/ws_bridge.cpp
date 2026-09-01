@@ -19,13 +19,28 @@ WsBridge::~WsBridge() {}
 void WsBridge::begin(AsyncWebServer* server) {
     _ws.onEvent([this](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
         if (type == WS_EVT_CONNECT) {
-            // Send initial status
-            broadcastStatus(ToneX.isConnected(), ToneX.activePreset());
+            // Initial status is connection-local and includes the identity used for sync ownership.
+            sendStatus(client->id(), ToneX.isConnected(), ToneX.activePreset());
+        } else if (type == WS_EVT_DISCONNECT) {
+            if (_syncOwnerClientId == client->id()) {
+                const uint32_t abandonedOwner = _syncOwnerClientId;
+                _syncOwnerClientId = 0;
+                if (ToneX.isSyncing()) ToneX.cancelSync();
+                StatusLed.setState(ToneX.isConnected() ? LedState::TONEX_CONNECTED : LedState::WIFI_CONNECTED);
+
+                JsonDocument doc;
+                doc["event"] = "sync_cancelled";
+                doc["reason"] = "owner_disconnected";
+                doc["owner_client_id"] = abandonedOwner;
+                std::string out;
+                serializeJson(doc, out);
+                _ws.textAll(out.c_str());
+            }
         } else if (type == WS_EVT_DATA) {
             AwsFrameInfo* info = (AwsFrameInfo*)arg;
             if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
                 std::string msg((char*)data, len);
-                processIncomingMessage(msg);
+                processIncomingMessage(msg, client->id());
             }
         }
     });
@@ -45,11 +60,13 @@ void WsBridge::begin(AsyncWebServer* server) {
     ToneX.onSyncComplete([this](uint8_t total) {
         StatusLed.setState(LedState::TONEX_CONNECTED);
         broadcastSyncComplete(total);
+        _syncOwnerClientId = 0;
     });
 
     ToneX.onSyncError([this](const std::string& message) {
         StatusLed.setState(LedState::ERROR_STATE);
         broadcastError("sync_failed", message.c_str());
+        _syncOwnerClientId = 0;
     });
 
     ToneX.onPresetReceived([this](const ToneXPresetInfo& info) {
@@ -59,6 +76,58 @@ void WsBridge::begin(AsyncWebServer* server) {
     ToneX.onActivePresetChange([this](uint8_t presetIndex) {
         broadcastStatus(ToneX.isConnected(), presetIndex);
     });
+}
+
+void WsBridge::sendStatus(uint32_t clientId, bool tonexConnected, int16_t activePc) {
+    JsonDocument doc;
+    doc["event"] = "status";
+    doc["client_id"] = clientId;
+    doc["tonex_connected"] = tonexConnected;
+    if (activePc >= 0 && activePc < TONEX_TOTAL_PRESETS) {
+        doc["active_pc"] = activePc;
+        ToneXHDLC::BankSlot bs = ToneXHDLC::bankSlotFromPC(static_cast<uint8_t>(activePc));
+        doc["active_bank"] = bs.bank;
+        doc["active_slot"] = std::string(1, bs.slot);
+    }
+
+    std::string out;
+    serializeJson(doc, out);
+    _ws.text(clientId, out.c_str());
+}
+
+void WsBridge::sendMidiAccepted(uint32_t clientId, uint8_t pc, uint32_t requestId) {
+    JsonDocument doc;
+    doc["event"] = "midi_accepted";
+    doc["pc"] = pc;
+    if (requestId > 0) doc["request_id"] = requestId;
+
+    std::string out;
+    serializeJson(doc, out);
+    _ws.text(clientId, out.c_str());
+}
+
+void WsBridge::sendError(uint32_t clientId, const char* code, const char* message, uint32_t requestId) {
+    JsonDocument doc;
+    doc["event"] = "error";
+    doc["code"] = code;
+    doc["message"] = message;
+    if (requestId > 0) doc["request_id"] = requestId;
+
+    std::string out;
+    serializeJson(doc, out);
+    _ws.text(clientId, out.c_str());
+}
+
+void WsBridge::sendSyncStarted(uint32_t clientId, uint32_t requestId) {
+    JsonDocument doc;
+    doc["event"] = "sync_started";
+    doc["owner_client_id"] = clientId;
+    doc["total"] = TONEX_TOTAL_PRESETS;
+    if (requestId > 0) doc["request_id"] = requestId;
+
+    std::string out;
+    serializeJson(doc, out);
+    _ws.text(clientId, out.c_str());
 }
 #endif
 
@@ -87,6 +156,7 @@ void WsBridge::broadcastSyncProgress(uint8_t loaded, uint8_t total) {
     doc["loaded"] = loaded;
     doc["total"] = total;
     doc["percent"] = (loaded * 100) / total;
+    if (_syncOwnerClientId > 0) doc["owner_client_id"] = _syncOwnerClientId;
 
     std::string out;
     serializeJson(doc, out);
@@ -100,6 +170,7 @@ void WsBridge::broadcastSyncComplete(uint8_t total) {
     JsonDocument doc;
     doc["event"] = "sync_complete";
     doc["total"] = total;
+    if (_syncOwnerClientId > 0) doc["owner_client_id"] = _syncOwnerClientId;
 
     std::string out;
     serializeJson(doc, out);
@@ -112,20 +183,7 @@ void WsBridge::broadcastSyncComplete(uint8_t total) {
 void WsBridge::broadcastSyncCancelled() {
     JsonDocument doc;
     doc["event"] = "sync_cancelled";
-
-    std::string out;
-    serializeJson(doc, out);
-
-#ifndef NATIVE_TEST
-    _ws.textAll(out.c_str());
-#endif
-}
-
-void WsBridge::broadcastMidiAccepted(uint8_t pc, uint32_t requestId) {
-    JsonDocument doc;
-    doc["event"] = "midi_accepted";
-    doc["pc"] = pc;
-    if (requestId > 0) doc["request_id"] = requestId;
+    if (_syncOwnerClientId > 0) doc["owner_client_id"] = _syncOwnerClientId;
 
     std::string out;
     serializeJson(doc, out);
@@ -167,7 +225,7 @@ void WsBridge::broadcastPreset(uint8_t bank, char slot, const std::string& name,
 #endif
 }
 
-void WsBridge::processIncomingMessage(const std::string& jsonString) {
+void WsBridge::processIncomingMessage(const std::string& jsonString, uint32_t clientId) {
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, jsonString);
     if (err) return;
@@ -183,37 +241,68 @@ void WsBridge::processIncomingMessage(const std::string& jsonString) {
 
         if (bank < 0 || bank >= 50 || (slot != 'A' && slot != 'B' && slot != 'C') ||
             channel < 0 || channel >= 16) {
-            broadcastError("midi_invalid", "Invalid preset or MIDI channel", requestId);
+#ifndef NATIVE_TEST
+            sendError(clientId, "midi_invalid", "Invalid preset or MIDI channel", requestId);
+#endif
             return;
         }
 
         if (!ToneX.sendBankSelectAndPC(
                 static_cast<uint8_t>(bank), slot, static_cast<uint8_t>(channel))) {
-            broadcastError(
-                "midi_unavailable", "The TONEX MIDI interface is not ready", requestId);
+#ifndef NATIVE_TEST
+            sendError(clientId, "midi_unavailable", "The TONEX MIDI interface is not ready", requestId);
+#endif
             return;
         }
         uint8_t pc = ToneXHDLC::pcFromBankSlot(static_cast<uint8_t>(bank), slot);
-        broadcastMidiAccepted(pc, requestId);
+#ifndef NATIVE_TEST
+        sendMidiAccepted(clientId, pc, requestId);
+#endif
 
     } else if (strcmp(action, "status_request") == 0) {
-        broadcastStatus(ToneX.isConnected(), ToneX.activePreset());
+#ifndef NATIVE_TEST
+        sendStatus(clientId, ToneX.isConnected(), ToneX.activePreset());
+#endif
 
     } else if (strcmp(action, "sync_start") == 0) {
-        if (ToneX.startSync()) {
-            StatusLed.setState(LedState::SYNCING);
+        uint32_t requestId = doc["request_id"] | 0;
+        if (_syncOwnerClientId != 0 || ToneX.isSyncing()) {
+#ifndef NATIVE_TEST
+            sendError(clientId, "sync_unavailable", "Preset sync is already active or the TONEX is disconnected", requestId);
+#endif
         } else {
-            broadcastError("sync_unavailable", "Preset sync is already active or the TONEX is disconnected");
+            _syncOwnerClientId = clientId;
+            if (ToneX.startSync()) {
+                StatusLed.setState(LedState::SYNCING);
+#ifndef NATIVE_TEST
+                sendSyncStarted(clientId, requestId);
+#endif
+            } else {
+                _syncOwnerClientId = 0;
+#ifndef NATIVE_TEST
+                sendError(clientId, "sync_unavailable", "Preset sync is already active or the TONEX is disconnected", requestId);
+#endif
+            }
         }
     } else if (strcmp(action, "sync_cancel") == 0) {
-        if (ToneX.isSyncing()) {
+        uint32_t requestId = doc["request_id"] | 0;
+        if (ToneX.isSyncing() && _syncOwnerClientId != clientId) {
+#ifndef NATIVE_TEST
+            sendError(clientId, "sync_not_owner", "Only the browser that started sync can cancel it", requestId);
+#endif
+        } else if (ToneX.isSyncing()) {
             ToneX.cancelSync();
             StatusLed.setState(LedState::TONEX_CONNECTED);
             broadcastSyncCancelled();
+            _syncOwnerClientId = 0;
         } else {
-            broadcastError("sync_not_active", "No preset sync is currently active");
+#ifndef NATIVE_TEST
+            sendError(clientId, "sync_not_active", "No preset sync is currently active", requestId);
+#endif
         }
     } else {
-        broadcastError("unknown_action", "Unknown bridge action");
+#ifndef NATIVE_TEST
+        sendError(clientId, "unknown_action", "Unknown bridge action");
+#endif
     }
 }
