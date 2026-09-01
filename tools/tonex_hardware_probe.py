@@ -20,6 +20,7 @@ from typing import Callable, Iterable, Optional, Sequence
 
 HELLO_CMD = bytes.fromhex("b9 03 00 82 04 00 80 10 01 b9 02 02 10")
 REQUEST_STATE_CMD = bytes.fromhex("b9 03 00 82 06 00 80 10 03 b9 02 81 01 02 10")
+STATE_RESPONSE_PREFIX = bytes.fromhex("b9 03 81 01 02 03 10 b9 01")
 NAME_MARKER = bytes.fromhex("b9 04 b9 02 bc 21")
 PARAM_MARKER = bytes.fromhex("ba 03 ba 29")
 AMP_ENABLE_INDEX = 17
@@ -174,6 +175,14 @@ def parse_active_preset_event_index(payload: bytes) -> int:
     if len(payload) < 12 or payload[7:12] != ACTIVE_PRESET_EVENT_PREFIX:
         raise ProtocolError("Payload is not an active-preset event")
     return parse_preset_index(payload)
+
+
+def parse_state_response(payload: bytes) -> int:
+    if len(payload) != len(STATE_RESPONSE_PREFIX) + 1 or not payload.startswith(
+        STATE_RESPONSE_PREFIX
+    ):
+        raise ProtocolError("State response has an invalid payload")
+    return payload[-1]
 
 
 def parse_preset_response(index: int, payload: bytes, include_name: bool = False) -> PresetResult:

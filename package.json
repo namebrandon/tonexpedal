@@ -10,6 +10,7 @@
     "hardware:midi-probe": "swift tools/tonex_midi_probe.swift",
     "hardware:midi-stress": "python3 tools/tonex_midi_stress.py",
     "hardware:control-capture": "python3 tools/tonex_control_capture.py",
+    "hardware:state-watch": "python3 tools/tonex_state_watch.py",
     "diagnostics:summary": "node tools/summarize_diagnostic.js"
   },
   "keywords": [

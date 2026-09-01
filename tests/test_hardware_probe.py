@@ -113,6 +113,15 @@ class HardwareProbeProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(probe.ProtocolError, "solicited"):
             probe.parse_preset_response_index(payload)
 
+    def test_parses_short_state_response(self):
+        payload = bytes.fromhex("b9 03 81 01 02 03 10 b9 01 00")
+        self.assertEqual(probe.parse_state_response(payload), 0)
+        self.assertEqual(probe.parse_state_response(payload[:-1] + b"\x7f"), 0x7F)
+        with self.assertRaisesRegex(probe.ProtocolError, "State response"):
+            probe.parse_state_response(payload[:-1])
+        with self.assertRaisesRegex(probe.ProtocolError, "State response"):
+            probe.parse_state_response(b"\x00" + payload[1:])
+
     def test_transport_demultiplexes_active_event_before_response(self):
         event = bytes(self.preset_payload(149, unsolicited=True))
         response = bytes(self.preset_payload(42))
