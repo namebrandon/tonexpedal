@@ -33,4 +33,20 @@ describe('Deployed Frontend Assets', () => {
             'Run the same theme update against ui.css and firmware/data/ui.css'
         );
     });
+
+    it('keeps the firmware-hosted Wi-Fi setup page identical to the root setup page', () => {
+        assert.deepStrictEqual(
+            read('firmware/data/setup.html'),
+            read('setup.html'),
+            'Run the same setup update against setup.html and firmware/data/setup.html'
+        );
+    });
+
+    it('keeps the firmware-hosted Wi-Fi setup theme identical to the root setup theme', () => {
+        assert.deepStrictEqual(
+            read('firmware/data/setup.css'),
+            read('setup.css'),
+            'Run the same setup theme update against setup.css and firmware/data/setup.css'
+        );
+    });
 });

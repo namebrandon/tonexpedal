@@ -6,7 +6,7 @@ The goal of this sub-project is to transform the **TONEX Pedal Controller** into
 
 By connecting a small **ESP32-S3** microcontroller board to the TONEX Pedal via USB, the ESP32 acts as a self-contained web server, WebSocket bridge, and USB Host. This enables full remote preset browsing, editing, library sync, and real-time switching from any device on your LAN (e.g. iPad on couch, smartphone on stage, or desktop browser) with **zero latency** and **no host computer required**.
 
-> **Implementation status:** the complete firmware path is implemented: WLAN hosting, bridge discovery, WebSocket messaging, physical USB enumeration, USB-MIDI output, CDC bulk transport, and the 150-preset synchronization state machine. USB descriptor matching, MIDI transfers, and CDC responses still require validation through the physical ESP32 host before the bridge should be considered hardware-ready.
+> **Implementation status:** the complete firmware path is implemented: station-mode WLAN hosting, setup/recovery provisioning, bridge discovery, WebSocket messaging, physical USB enumeration, USB-MIDI output, CDC bulk transport, and the 150-preset synchronization state machine. USB descriptor matching, setup-AP/NVS behavior, real WLAN joining, MIDI transfers, and CDC responses still require validation through the physical ESP32 before the bridge should be considered hardware-ready.
 
 The full-size pedal's MIDI encoding and CDC response/event formats have now been validated directly on macOS. Physical ESP32 descriptor claiming and endpoint behavior remain pending until the board is available.
 
@@ -83,14 +83,24 @@ The TONEX Pedal is a USB peripheral/device and **does not supply 5V power over i
 
 ### 4.2 WLAN Configuration
 
-The bridge normally joins an existing WLAN and receives its address through DHCP. It does not create an access point during normal operation.
+The bridge normally joins an existing WLAN and receives its address through DHCP.
+Its access point exists only for first-boot provisioning or recovery after a station
+connection timeout.
 
-1. Copy `firmware/include/wifi_secrets.example.h` to `firmware/include/wifi_secrets.h`.
-2. Set `TONEX_WIFI_SSID` and `TONEX_WIFI_PASS` in the copied file.
-3. Flash the firmware and LittleFS data.
-4. Read the assigned IP address from the serial log, or open `http://tonex.local` from another device on the same WLAN.
+1. Flash both firmware and LittleFS data.
+2. Join `TONEX-Setup-XXXXXX` with the development password `tonexsetup`.
+3. Open `http://192.168.4.1` explicitly; captive-portal redirection is not yet implemented.
+4. Enter the target WLAN and device name, then save. Credentials are validated and stored in the ESP32's NVS partition; API responses never include the password.
+5. After restart, rejoin the target WLAN and open the DHCP address or `http://<device-name>.local`.
 
-The credential file is ignored by Git. Access-point fallback and browser-based provisioning are reserved for a later recovery workflow.
+The configuration API accepts writes only while setup mode is active. Once station
+joining succeeds, the setup AP is stopped and configuration writes are locked. A
+failed initial join leaves the temporary AP available while station reconnection
+continues, preventing bad credentials from making the unit unreachable.
+
+`wifi_secrets.h` remains an optional compile-time fallback and is ignored by Git.
+NVS settings take precedence. Override `TONEX_SETUP_AP_PASSWORD` for a field unit;
+the checked-in value is intended for development and bring-up.
 
 ### 4.3 Firmware Modules
 
@@ -98,18 +108,22 @@ The credential file is ignored by Git. Access-point fallback and browser-based p
 firmware/
 ├── include/
 │   ├── config.h             # Wi-Fi credentials, mDNS hostname, pin definitions
+│   ├── wifi_config.h        # Pure credential and hostname validation model
 │   ├── tonex_usb_host.h     # USB Host driver for MIDI & CDC endpoints
 │   ├── tonex_hdlc.h         # HDLC framing, byte stuffing, CRC-CCITT for ESP32
 │   ├── ws_bridge.h          # WebSocket server and JSON/Binary dispatcher
 │   └── led_status.h         # RGB WS2812 status indicator controller
 ├── src/
 │   ├── main.cpp             # Setup, Wi-Fi init, mDNS, task loops
+│   ├── wifi_config.cpp      # Native-testable Wi-Fi validation rules
 │   ├── tonex_usb_host.cpp   # USB Host enumeration, MIDI Out, CDC read/write
 │   ├── tonex_hdlc.cpp       # Ported CRC-CCITT & packet parser
 │   ├── ws_bridge.cpp        # WebSocket client handler
 │   └── led_status.cpp       # Visual feedback handler
 ├── data/                    # Web assets uploaded to LittleFS
 │   ├── index.html           # Single-page web app with WS transport shim
+│   ├── setup.html           # First-boot/recovery WLAN provisioning page
+│   ├── setup.css            # Provisioning page theme
 │   └── favicon.svg          # App icon
 └── platformio.ini           # Build flags, partition table, dependencies
 ```

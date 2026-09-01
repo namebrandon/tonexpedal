@@ -31,6 +31,14 @@
 #define TONEX_WIFI_RECONNECT_INTERVAL_MS 10000
 #endif
 
+#ifndef TONEX_SETUP_AP_PREFIX
+#define TONEX_SETUP_AP_PREFIX "TONEX-Setup"
+#endif
+
+#ifndef TONEX_SETUP_AP_PASSWORD
+#define TONEX_SETUP_AP_PASSWORD "tonexsetup"
+#endif
+
 #define HTTP_PORT         80
 #define WS_PATH           "/ws"
 

@@ -44,7 +44,8 @@ describe('Desktop bridge simulator', () => {
         assert.deepStrictEqual(identity, {
             service: 'tonex-bridge',
             protocol_version: 1,
-            simulated: true
+            simulated: true,
+            setup_mode: false
         });
 
         const frontend = await (await fetch(baseUrl + '/')).text();
@@ -130,5 +131,57 @@ describe('Desktop bridge simulator', () => {
         assert.strictEqual(response.status, 200);
         const state = await response.json();
         assert.strictEqual(state.confirmation_mode, 'error');
+    });
+
+    it('models setup-only Wi-Fi configuration without returning passwords', async () => {
+        const { baseUrl } = await startSimulator({ wifiSetupMode: true });
+        const setupPage = await (await fetch(baseUrl + '/')).text();
+        assert.match(setupPage, /Join your existing Wi-Fi/);
+
+        const initial = await (await fetch(baseUrl + '/api/wifi')).json();
+        assert.strictEqual(initial.setup_mode, true);
+        assert.strictEqual(Object.hasOwn(initial, 'password'), false);
+
+        const invalidResponse = await fetch(baseUrl + '/api/wifi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ssid: 'Stage', password: 'short', hostname: 'tonex', open_network: false
+            })
+        });
+        assert.strictEqual(invalidResponse.status, 400);
+        assert.strictEqual((await invalidResponse.json()).field, 'password');
+
+        const acceptedResponse = await fetch(baseUrl + '/api/wifi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ssid: 'Stage', password: 'not-returned', hostname: 'tonex-stage',
+                open_network: false, request_id: 1_800_000_000_000
+            })
+        });
+        assert.strictEqual(acceptedResponse.status, 202);
+        const accepted = await acceptedResponse.json();
+        assert.strictEqual(accepted.request_id, 1_800_000_000_000);
+        assert.strictEqual(Object.hasOwn(accepted, 'password'), false);
+
+        const stored = await (await fetch(baseUrl + '/api/wifi')).json();
+        assert.strictEqual(stored.ssid, 'Stage');
+        assert.strictEqual(stored.stored, true);
+        assert.strictEqual(Object.hasOwn(stored, 'password'), false);
+        assert.doesNotMatch(JSON.stringify(stored), /not-returned/);
+    });
+
+    it('rejects Wi-Fi writes outside temporary setup mode', async () => {
+        const { baseUrl } = await startSimulator();
+        const response = await fetch(baseUrl + '/api/wifi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ssid: 'Stage', password: 'not-returned', hostname: 'tonex-stage', open_network: false
+            })
+        });
+        assert.strictEqual(response.status, 403);
+        assert.strictEqual((await response.json()).error, 'setup_required');
     });
 });

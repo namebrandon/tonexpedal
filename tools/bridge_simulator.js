@@ -10,6 +10,39 @@ const TOTAL_PRESETS = 150;
 const SLOTS = ['A', 'B', 'C'];
 const CONFIRMATION_MODES = new Set(['normal', 'drop', 'error']);
 
+function validateWifiSettings(settings) {
+    if (typeof settings.ssid !== 'string' || settings.ssid.length === 0) {
+        return { field: 'ssid', message: 'Network name is required' };
+    }
+    if (Buffer.byteLength(settings.ssid, 'utf8') > 32) {
+        return { field: 'ssid', message: 'Network name must be 32 bytes or fewer' };
+    }
+    if (/[\x00-\x1f\x7f]/.test(settings.ssid)) {
+        return { field: 'ssid', message: 'Network name cannot contain control characters' };
+    }
+    const password = typeof settings.password === 'string' ? settings.password : '';
+    if (settings.open_network && password.length > 0) {
+        return { field: 'password', message: 'An open network must not include a password' };
+    }
+    const passwordBytes = Buffer.byteLength(password, 'utf8');
+    if (!settings.open_network && passwordBytes < 8) {
+        return { field: 'password', message: 'Wi-Fi password must contain at least 8 bytes' };
+    }
+    if (passwordBytes > 63) {
+        return { field: 'password', message: 'Wi-Fi password must contain no more than 63 bytes' };
+    }
+    if (/[\x00-\x1f\x7f]/.test(password)) {
+        return { field: 'password', message: 'Wi-Fi password cannot contain control characters' };
+    }
+    if (typeof settings.hostname !== 'string' || settings.hostname.length === 0) {
+        return { field: 'hostname', message: 'Device name is required' };
+    }
+    if (settings.hostname.length > 63 || !/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(settings.hostname)) {
+        return { field: 'hostname', message: 'Device name may contain only letters, numbers, and interior hyphens' };
+    }
+    return null;
+}
+
 function presetLocation(pc) {
     return { bank: Math.floor(pc / 3), slot: SLOTS[pc % 3] };
 }
@@ -75,11 +108,20 @@ function createBridgeSimulator(options = {}) {
         nextClientId: 1,
         sync: null
     };
+    state.wifi = {
+        setupMode: options.wifiSetupMode === true,
+        stored: false,
+        ssid: '',
+        password: '',
+        hostname: 'tonex',
+        openNetwork: false
+    };
 
     const staticFiles = new Map([
-        ['/', ['index.html', 'text/html; charset=utf-8']],
         ['/index.html', ['index.html', 'text/html; charset=utf-8']],
+        ['/setup.html', ['setup.html', 'text/html; charset=utf-8']],
         ['/ui.css', ['ui.css', 'text/css; charset=utf-8']],
+        ['/setup.css', ['setup.css', 'text/css; charset=utf-8']],
         ['/favicon.svg', ['favicon.svg', 'image/svg+xml']]
     ]);
 
@@ -95,6 +137,20 @@ function createBridgeSimulator(options = {}) {
                 loaded: state.sync.loaded,
                 total: TOTAL_PRESETS
             } : null
+        };
+    }
+
+    function publicWifiState() {
+        return {
+            setup_mode: state.wifi.setupMode,
+            configured: state.wifi.ssid.length > 0,
+            stored: state.wifi.stored,
+            ssid: state.wifi.ssid,
+            hostname: state.wifi.hostname,
+            open_network: state.wifi.openNetwork,
+            station_connected: !state.wifi.setupMode && state.wifi.ssid.length > 0,
+            setup_ssid: state.wifi.setupMode ? 'TONEX-Setup-SIM001' : undefined,
+            setup_ip: state.wifi.setupMode ? '192.168.4.1' : undefined
         };
     }
 
@@ -266,6 +322,12 @@ function createBridgeSimulator(options = {}) {
             state.confirmationMode = 'normal';
             broadcast(statusMessage());
             break;
+        case 'wifi_setup_start':
+            state.wifi.setupMode = true;
+            break;
+        case 'wifi_setup_stop':
+            state.wifi.setupMode = false;
+            break;
         default:
             throw new Error('Unknown simulator action');
         }
@@ -279,8 +341,57 @@ function createBridgeSimulator(options = {}) {
             jsonResponse(response, 200, {
                 service: 'tonex-bridge',
                 protocol_version: 1,
-                simulated: true
+                simulated: true,
+                setup_mode: state.wifi.setupMode
             });
+            return;
+        }
+        if (request.method === 'GET' && url.pathname === '/api/wifi') {
+            jsonResponse(response, 200, publicWifiState());
+            return;
+        }
+        if (request.method === 'POST' && url.pathname === '/api/wifi') {
+            try {
+                const settings = await readJson(request);
+                if (!state.wifi.setupMode) {
+                    jsonResponse(response, 403, {
+                        error: 'setup_required',
+                        message: 'Wi-Fi changes are available only in setup mode'
+                    });
+                    return;
+                }
+                const validation = validateWifiSettings(settings);
+                if (validation) {
+                    jsonResponse(response, 400, { error: 'validation_failed', ...validation });
+                    return;
+                }
+                state.wifi.ssid = settings.ssid;
+                state.wifi.password = settings.open_network ? '' : settings.password;
+                state.wifi.hostname = settings.hostname;
+                state.wifi.openNetwork = !!settings.open_network;
+                state.wifi.stored = true;
+                jsonResponse(response, 202, {
+                    accepted: true,
+                    restarting: true,
+                    hostname: state.wifi.hostname,
+                    request_id: settings.request_id
+                });
+            } catch (error) {
+                jsonResponse(response, 400, { error: 'invalid_json', message: error.message });
+            }
+            return;
+        }
+        if (request.method === 'DELETE' && url.pathname === '/api/wifi') {
+            if (!state.wifi.setupMode) {
+                jsonResponse(response, 403, { error: 'setup_required' });
+                return;
+            }
+            state.wifi.stored = false;
+            state.wifi.ssid = '';
+            state.wifi.password = '';
+            state.wifi.hostname = 'tonex';
+            state.wifi.openNetwork = false;
+            jsonResponse(response, 202, { accepted: true, restarting: true });
             return;
         }
         if (request.method === 'GET' && url.pathname === '/api/simulator') {
@@ -296,7 +407,9 @@ function createBridgeSimulator(options = {}) {
             return;
         }
 
-        const asset = staticFiles.get(url.pathname);
+        const asset = url.pathname === '/' ?
+            (state.wifi.setupMode ? ['setup.html', 'text/html; charset=utf-8'] : ['index.html', 'text/html; charset=utf-8']) :
+            staticFiles.get(url.pathname);
         if (request.method === 'GET' && asset) {
             const [relativePath, contentType] = asset;
             fs.readFile(path.join(frontendDir, relativePath), (error, data) => {
@@ -370,6 +483,7 @@ function parseArgs(argv) {
         if (arg === '--port') options.port = Number(argv[++index]);
         else if (arg === '--host') options.host = argv[++index];
         else if (arg === '--disconnected') options.tonexConnected = false;
+        else if (arg === '--setup') options.wifiSetupMode = true;
         else if (arg === '--help') options.help = true;
         else throw new Error(`Unknown argument: ${arg}`);
     }
@@ -382,7 +496,7 @@ function parseArgs(argv) {
 async function main() {
     const options = parseArgs(process.argv.slice(2));
     if (options.help) {
-        console.log('Usage: node tools/bridge_simulator.js [--host 127.0.0.1] [--port 8787] [--disconnected]');
+        console.log('Usage: node tools/bridge_simulator.js [--host 127.0.0.1] [--port 8787] [--disconnected] [--setup]');
         return;
     }
 
@@ -390,7 +504,7 @@ async function main() {
     const address = await simulator.start();
     const displayHost = address.address === '0.0.0.0' ? 'localhost' : address.address;
     console.log(`TONEX bridge simulator: http://${displayHost}:${address.port}`);
-    console.log('Control API: POST /api/simulator (pedal_connect, pedal_disconnect, set_confirmation_mode, close_clients, reset)');
+    console.log('Control API: POST /api/simulator (pedal_connect, pedal_disconnect, set_confirmation_mode, close_clients, wifi_setup_start, wifi_setup_stop, reset)');
 
     const shutdown = async () => {
         await simulator.stop();
@@ -407,4 +521,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { createBridgeSimulator, parseArgs, presetInfo, presetLocation };
+module.exports = { createBridgeSimulator, parseArgs, presetInfo, presetLocation, validateWifiSettings };

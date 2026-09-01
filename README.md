@@ -72,11 +72,19 @@ Simply double-click `index.html` or open it via `file:///` in your browser.
 ### Option 4 — Standalone Wireless Bridge (ESP32-S3)
 
 For remote control from iOS Safari (iPad/iPhone) on your couch or stage with zero computer running:
-1. Copy `firmware/include/wifi_secrets.example.h` to `firmware/include/wifi_secrets.h` and enter the existing WLAN credentials.
-2. Flash the firmware and LittleFS data in [`firmware/`](firmware/) to an **ESP32-S3-DevKit** board ([Amazon Example](https://www.amazon.com/dp/B0GBT212KM)).
-3. 3D print a snap-fit enclosure ([Printables 3D Model](https://www.printables.com/model/1774744-case-for-yd-esp32-s3-n16r8)).
-4. Connect the ESP32 to the ToneX Pedal via USB and power it from 5V (or a 9V tap).
-5. Read the DHCP address from the serial log, then open that address or `http://tonex.local` from a browser on the same WLAN.
+1. Flash the firmware and LittleFS data in [`firmware/`](firmware/) to an **ESP32-S3-DevKit** board ([Amazon Example](https://www.amazon.com/dp/B0GBT212KM)).
+2. On first boot, join the temporary `TONEX-Setup-XXXXXX` network using password `tonexsetup`, then open `http://192.168.4.1`.
+3. Enter the existing WLAN name/password and save. The temporary setup network stops after the bridge joins that WLAN.
+4. Rejoin the normal WLAN and open `http://tonex.local` (or the custom device name entered during setup).
+5. Connect the ESP32 to the ToneX Pedal via USB and power it from 5V (or a 9V tap).
+6. 3D print a snap-fit enclosure ([Printables 3D Model](https://www.printables.com/model/1774744-case-for-yd-esp32-s3-n16r8)).
+
+The setup access point is a provisioning/recovery path only; the controller runs in
+Wi-Fi station mode during normal use. Captive-portal redirection is not yet
+implemented, so open `192.168.4.1` explicitly. For a deployed unit, override
+`TONEX_SETUP_AP_PASSWORD` in the build configuration instead of retaining the
+development default. Compile-time `wifi_secrets.h` credentials remain supported as
+an optional fallback.
 
 See full guide: [ESP32-S3 Wireless Bridge Documentation](docs/ESP32_WIRELESS_BRIDGE.md).
 
@@ -181,6 +189,12 @@ desktop bridge simulator and open the printed localhost URL:
 ```bash
 npm install
 npm run simulator
+```
+
+Add `-- --setup` to serve the first-boot Wi-Fi provisioning page and setup API:
+
+```bash
+npm run simulator -- --setup
 ```
 
 The simulator serves the production frontend and models pedal connection changes,

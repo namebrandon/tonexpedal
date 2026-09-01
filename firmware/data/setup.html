@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="setup.css">
+    <title>TONEX Remote · Wi-Fi Setup</title>
+</head>
+<body>
+    <main class="setup-shell">
+        <header class="setup-brand">
+            <span class="brand-mark" aria-hidden="true">TX</span>
+            <div>
+                <span class="kicker">PEDAL CONTROL SYSTEM</span>
+                <h1>TONEX <strong>REMOTE</strong></h1>
+            </div>
+            <span class="setup-badge">WI-FI SETUP</span>
+        </header>
+
+        <section class="setup-card" aria-labelledby="setup-title">
+            <div class="card-heading">
+                <span class="step">01 / NETWORK</span>
+                <h2 id="setup-title">Join your existing Wi-Fi</h2>
+                <p>The bridge uses this network during normal operation. Its temporary setup network stops after a successful connection.</p>
+            </div>
+
+            <div class="device-state" id="device-state" role="status" aria-live="polite">
+                <span class="state-dot"></span>
+                <span id="device-state-text">Reading bridge status…</span>
+            </div>
+
+            <form id="wifi-form" novalidate>
+                <label for="ssid">Network name (SSID)</label>
+                <input id="ssid" name="ssid" type="text" maxlength="32" autocomplete="off" required>
+                <span class="field-error" id="ssid-error"></span>
+
+                <label for="password">Wi-Fi password</label>
+                <input id="password" name="password" type="password" minlength="8" maxlength="63" autocomplete="new-password" required>
+                <span class="field-hint">The password is written directly to the bridge and is never returned by its API.</span>
+                <span class="field-error" id="password-error"></span>
+
+                <label class="check-row" for="open-network">
+                    <input id="open-network" name="open-network" type="checkbox">
+                    <span>This is intentionally an open network</span>
+                </label>
+
+                <label for="hostname">Device name</label>
+                <div class="hostname-field">
+                    <input id="hostname" name="hostname" type="text" maxlength="63" value="tonex" pattern="[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?" required>
+                    <span>.local</span>
+                </div>
+                <span class="field-hint">After joining, try this address from another device on the same WLAN.</span>
+                <span class="field-error" id="hostname-error"></span>
+
+                <div class="form-actions">
+                    <button type="submit" id="save-button">SAVE &amp; RESTART</button>
+                    <button type="button" class="secondary" id="forget-button" hidden>FORGET SAVED WI-FI</button>
+                </div>
+            </form>
+
+            <div class="result" id="result" role="status" aria-live="assertive" hidden></div>
+        </section>
+
+        <p class="setup-footnote">Configuration writes are accepted only while the bridge is in temporary setup mode.</p>
+    </main>
+
+    <script>
+    (function() {
+        const form = document.getElementById('wifi-form');
+        const ssid = document.getElementById('ssid');
+        const password = document.getElementById('password');
+        const hostname = document.getElementById('hostname');
+        const openNetwork = document.getElementById('open-network');
+        const saveButton = document.getElementById('save-button');
+        const forgetButton = document.getElementById('forget-button');
+        const result = document.getElementById('result');
+        const deviceState = document.getElementById('device-state');
+        const deviceStateText = document.getElementById('device-state-text');
+
+        function byteLength(value) {
+            return new TextEncoder().encode(value).length;
+        }
+
+        function validateWifiInput(settings) {
+            if (!settings.ssid) return { field: 'ssid', message: 'Enter the Wi-Fi network name.' };
+            if (byteLength(settings.ssid) > 32) return { field: 'ssid', message: 'Network name must be 32 bytes or fewer.' };
+            if (/[\x00-\x1f\x7f]/.test(settings.ssid)) return { field: 'ssid', message: 'Network name contains an unsupported control character.' };
+            if (settings.open_network && settings.password) return { field: 'password', message: 'Clear the password for an open network.' };
+            if (!settings.open_network && byteLength(settings.password) < 8) return { field: 'password', message: 'Password must contain at least 8 bytes.' };
+            if (byteLength(settings.password) > 63) return { field: 'password', message: 'Password must contain no more than 63 bytes.' };
+            if (/[\x00-\x1f\x7f]/.test(settings.password)) return { field: 'password', message: 'Password contains an unsupported control character.' };
+            if (!settings.hostname) return { field: 'hostname', message: 'Enter a device name.' };
+            if (settings.hostname.length > 63 || !/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(settings.hostname)) {
+                return { field: 'hostname', message: 'Use letters, numbers, and interior hyphens only.' };
+            }
+            return null;
+        }
+
+        function clearErrors() {
+            for (const field of ['ssid', 'password', 'hostname']) {
+                document.getElementById(field + '-error').textContent = '';
+                document.getElementById(field).removeAttribute('aria-invalid');
+            }
+        }
+
+        function showError(error) {
+            clearErrors();
+            const field = document.getElementById(error.field);
+            const message = document.getElementById(error.field + '-error');
+            if (field && message) {
+                field.setAttribute('aria-invalid', 'true');
+                message.textContent = error.message;
+                field.focus();
+            } else {
+                showResult(error.message, 'error');
+            }
+        }
+
+        function showResult(message, kind) {
+            result.hidden = false;
+            result.dataset.kind = kind;
+            result.textContent = message;
+        }
+
+        function setFormEnabled(enabled) {
+            for (const control of form.elements) control.disabled = !enabled;
+        }
+
+        function updateOpenNetwork() {
+            password.disabled = openNetwork.checked;
+            password.required = !openNetwork.checked;
+            if (openNetwork.checked) password.value = '';
+        }
+
+        async function loadStatus() {
+            try {
+                const response = await fetch('/api/wifi', { cache: 'no-store' });
+                if (!response.ok) throw new Error('The bridge did not return Wi-Fi status.');
+                const status = await response.json();
+                ssid.value = status.ssid || '';
+                hostname.value = status.hostname || 'tonex';
+                openNetwork.checked = !!status.open_network;
+                updateOpenNetwork();
+                forgetButton.hidden = !status.stored;
+
+                if (status.setup_mode) {
+                    deviceState.dataset.state = 'ready';
+                    deviceStateText.textContent = status.setup_ssid ?
+                        `Setup mode · ${status.setup_ssid}` : 'Setup mode · ready';
+                    setFormEnabled(true);
+                    updateOpenNetwork();
+                } else {
+                    deviceState.dataset.state = 'locked';
+                    deviceStateText.textContent = status.station_connected ?
+                        `Connected to ${status.ssid}` : 'Configuration is locked';
+                    setFormEnabled(false);
+                    showResult('Restart the bridge in setup mode before changing Wi-Fi settings.', 'info');
+                }
+            } catch (error) {
+                deviceState.dataset.state = 'error';
+                deviceStateText.textContent = 'Bridge status unavailable';
+                setFormEnabled(false);
+                showResult(error.message, 'error');
+            }
+        }
+
+        openNetwork.addEventListener('change', updateOpenNetwork);
+        hostname.addEventListener('input', () => {
+            hostname.value = hostname.value.toLowerCase().replace(/\s+/g, '-');
+        });
+
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            clearErrors();
+            result.hidden = true;
+            const settings = {
+                ssid: ssid.value,
+                password: openNetwork.checked ? '' : password.value,
+                hostname: hostname.value,
+                open_network: openNetwork.checked,
+                request_id: Date.now()
+            };
+            const validation = validateWifiInput(settings);
+            if (validation) {
+                showError(validation);
+                return;
+            }
+
+            saveButton.disabled = true;
+            saveButton.textContent = 'SAVING…';
+            let saved = false;
+            try {
+                const response = await fetch('/api/wifi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                const body = await response.json();
+                password.value = '';
+                if (!response.ok) {
+                    showError({ field: body.field, message: body.message || 'The bridge rejected these settings.' });
+                    return;
+                }
+                saved = true;
+                setFormEnabled(false);
+                showResult(`Saved. Rejoin ${settings.ssid}, then open http://${settings.hostname}.local`, 'success');
+            } catch (error) {
+                showResult('The setup connection closed before confirmation. Rejoin the setup network and verify the settings.', 'error');
+            } finally {
+                if (!saved) {
+                    saveButton.disabled = false;
+                    saveButton.textContent = 'SAVE & RESTART';
+                }
+            }
+        });
+
+        forgetButton.addEventListener('click', async () => {
+            if (!confirm('Forget the saved Wi-Fi configuration and restart setup?')) return;
+            forgetButton.disabled = true;
+            try {
+                const response = await fetch('/api/wifi', { method: 'DELETE' });
+                if (!response.ok) throw new Error('The bridge could not clear its Wi-Fi configuration.');
+                setFormEnabled(false);
+                showResult('Saved Wi-Fi removed. The bridge is restarting in setup mode.', 'success');
+            } catch (error) {
+                forgetButton.disabled = false;
+                showResult(error.message, 'error');
+            }
+        });
+
+        loadStatus();
+    })();
+    </script>
+</body>
+</html>
