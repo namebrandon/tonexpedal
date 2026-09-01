@@ -33,6 +33,8 @@ for (const frontendPath of ['index.html', 'firmware/data/index.html']) {
             assert.match(frontend, /\* 127 \/ 100/);
             assert.match(frontend, /function formatModelVolume\(position\)/);
             assert.match(frontend, /\(position \/ 10\)\.toFixed\(1\)/);
+            assert.match(frontend, /volume\.addEventListener\('dblclick'/);
+            assert.match(frontend, /queueRigVolume\(50\);/);
             assert.match(frontend, /function queueRigVolume\(position\)/);
             assert.match(frontend, /Math\.max\(0, RIG_VOLUME_THROTTLE_MS - elapsed\)/);
             assert.match(frontend, /pedal state is not read back/);

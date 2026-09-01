@@ -1636,6 +1636,14 @@
                     flushRigVolume();
                 }
             });
+            volume.addEventListener('dblclick', event => {
+                event.preventDefault();
+                queueRigVolume(50); // 5.0 on the pedal's displayed 0.0–10.0 scale.
+                if (rigVolumeTimer) {
+                    clearTimeout(rigVolumeTimer);
+                    flushRigVolume();
+                }
+            });
             updateRigControlUi();
         }
 
