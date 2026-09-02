@@ -235,6 +235,8 @@ Focused global-setting capture established a separate live-update message family
 - Changing and restoring the Global Settings **Input Trim** value emitted a 25-frame burst of 3,552-byte unsolicited CDC payloads, each with zero CRC errors. This is distinct from the 1,189-byte active-preset event family.
 - The 25 frames had no preset-name or known preset-parameter markers. Across the ordered burst, adjacent frames differed at exactly byte offset 58.
 - The observed byte at that offset stepped through `8, 16, 24, …, 112` as Input Trim changed and returned to `8` when it was restored. The mapping from this encoded value to the pedal’s displayed units remains to be decoded.
+- Changing and restoring Global Settings **Main Volume** emitted eight 3,552-byte CDC frames with zero CRC errors. The isolated field at byte offsets 61–64 is little-endian IEEE-754 and followed the observed physical adjustment sequence `+1.0, +2.0, +3.0, +2.0, +1.0, 0.0, -1.0, 0.0`; the final physical setting was confirmed at `0.0`.
+- The community-proposed `CC122` Global Volume candidate was then delivered through CoreMIDI as `127`, `0`, and final restore `0` while a 20-second CDC capture was active. It emitted **zero** CDC frames and did not update the identified Main Volume field. Do not expose a browser Master Volume control or treat `CC122` as a supported full-size TONEX Pedal command.
 - This proves the pedal does report at least some live global-setting changes over CDC. A future bridge feature may decode this message family, but must not treat its fields as understood until more isolated setting captures establish a stable schema.
 
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
