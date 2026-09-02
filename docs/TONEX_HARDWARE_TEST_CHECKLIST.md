@@ -239,6 +239,12 @@ Focused global-setting capture established a separate live-update message family
 - The community-proposed `CC122` Global Volume candidate was then delivered through CoreMIDI as `127`, `0`, and final restore `0` while a 20-second CDC capture was active. It emitted **zero** CDC frames and did not update the identified Main Volume field. Do not expose a browser Master Volume control or treat `CC122` as a supported full-size TONEX Pedal command.
 - This proves the pedal does report at least some live global-setting changes over CDC. A future bridge feature may decode this message family, but must not treat its fields as understood until more isolated setting captures establish a stable schema.
 
+Focused reverb-parameter testing established an observability limitation:
+
+- With `REV TYPE` physically set to `ROOM`, changing the ALT-mode Reverb Mix knob produced no unsolicited CDC frame during a 45-second read-only capture.
+- The proposed Room Mix `CC74` command was delivered through CoreMIDI as `0`, `127`, and a final value of `64` (50%). The pedal display showed no visible change during the controlled, delayed observation window.
+- This does not disprove an audio-only Room Mix change, but neither CDC nor the pedal display can confirm it. Keep advanced reverb parameters out of the browser's confirmed controls until an audio/headphone test or a TONEX Editor traffic capture validates a full-size Pedal command and its behavior.
+
 ## 5. ESP32 WLAN and USB-MIDI Vertical Slice
 
 - Configure `firmware/include/wifi_secrets.h`, then upload both firmware and LittleFS data.
