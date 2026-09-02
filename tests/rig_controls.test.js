@@ -9,11 +9,11 @@ for (const frontendPath of ['index.html', 'firmware/data/index.html']) {
     describe(`Rig Controls UI in ${frontendPath}`, () => {
         const frontend = fs.readFileSync(path.join(rootDir, frontendPath), 'utf8');
 
-        it('presents the three documented switching controls and a model-volume dial', () => {
+        it('presents only the three documented switching controls and a model-volume dial', () => {
             for (const control of ['gate', 'compressor', 'reverb']) {
                 assert.match(frontend, new RegExp(`data-rig-control="${control}"`));
             }
-            assert.match(frontend, /rigCabUnavailable/);
+            assert.doesNotMatch(frontend, /rigCabUnavailable|rigCab|rig-unavailable-control/);
             assert.match(frontend, /class="rig-knob-control" id="rig-model-volume-knob"/);
             assert.match(frontend, /id="rig-model-volume" class="rig-knob-input" type="range" min="0" max="100"/);
         });

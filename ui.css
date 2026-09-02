@@ -703,29 +703,6 @@ header h1 strong {
     color: #92969a;
 }
 
-.rig-unavailable-control {
-    min-height: 42px;
-    padding: 0 10px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    background: #141517;
-    border: 1px dashed #3a3d42;
-    border-radius: 3px;
-    color: #767a7f;
-    font-size: 11px;
-    font-weight: 640;
-}
-
-.rig-unavailable-control span:last-child {
-    color: #8d7550;
-    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-    font-size: 8px;
-    font-weight: 750;
-    letter-spacing: 0.06em;
-}
-
 .rig-toggle:disabled,
 .rig-volume-control input:disabled {
     cursor: not-allowed;
@@ -1335,12 +1312,6 @@ footer {
     }
 
     .rig-toggle {
-        min-height: 40px;
-        padding: 0 8px;
-        font-size: 10px;
-    }
-
-    .rig-unavailable-control {
         min-height: 40px;
         padding: 0 8px;
         font-size: 10px;
