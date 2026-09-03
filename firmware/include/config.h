@@ -6,7 +6,12 @@
 #endif
 
 // --- Hardware Pin Definitions ---
+#if defined(TONEX_BOARD_P4_WIFI6)
+// The Waveshare P4 WiFi6 board has no user-addressable RGB status LED.
+#define PIN_RGB_LED       -1
+#else
 #define PIN_RGB_LED       48
+#endif
 #define PIN_USB_DM        19
 #define PIN_USB_DP        20
 

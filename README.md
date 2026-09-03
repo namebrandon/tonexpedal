@@ -69,15 +69,16 @@ Then open `http://localhost:3000`.
 
 Simply double-click `index.html` or open it via `file:///` in your browser.
 
-### Option 4 — Standalone Wireless Bridge (ESP32-S3)
+### Option 4 — Standalone Wireless Bridge (ESP32-P4 Wi-Fi 6)
 
 For remote control from iOS Safari (iPad/iPhone) on your couch or stage with zero computer running:
-1. Flash the firmware and LittleFS data in [`firmware/`](firmware/) to an **ESP32-S3-DevKit** board ([Amazon Example](https://www.amazon.com/dp/B0GBT212KM)).
+1. Flash the firmware and LittleFS data in [`firmware/`](firmware/) to a **Waveshare ESP32-P4-WIFI6-DEV-KIT**. It pairs an ESP32-P4 high-speed USB host with an ESP32-C6 Wi-Fi/BLE coprocessor.
 2. On first boot, join the temporary `TONEX-Setup-XXXXXX` network using password `tonexsetup`, then open `http://192.168.4.1`.
 3. Enter the existing WLAN name/password and save. The temporary setup network stops after the bridge joins that WLAN.
 4. Rejoin the normal WLAN and open `http://tonex.local` (or the custom device name entered during setup).
-5. Connect the ESP32 to the ToneX Pedal via USB and power it from 5V (or a 9V tap).
-6. 3D print a snap-fit enclosure ([Printables 3D Model](https://www.printables.com/model/1774744-case-for-yd-esp32-s3-n16r8)).
+5. Set the board's USB-OTG jumper to **HOST**, power/program through its Type-C UART port, and connect TONEX to its USB-A OTG port.
+
+The previous ESP32-S3 hardware can run the web application, but it cannot operate this TONEX over USB: the pedal requires high-speed bulk endpoints, while the S3 host is full-speed-only.
 
 The setup access point is a provisioning/recovery path only; the controller runs in
 Wi-Fi station mode during normal use. Captive-portal redirection is not yet
@@ -226,7 +227,14 @@ python3 -m pip install -r requirements-dev.txt
 cd firmware && pio test -e native
 ```
 
-The ESP32 target is pinned to PlatformIO Espressif32 7.0.1 with an explicit N16R8 configuration (16 MB flash and 8 MB octal PSRAM).
+The legacy ESP32-S3 target is pinned to PlatformIO Espressif32 7.0.1. The production P4 target uses the PIOArduino platform (Arduino-ESP32 3.3.11), because official PlatformIO does not yet support ESP32-P4.
+
+Build the P4 bridge image with:
+
+```bash
+cd firmware
+pio run -e esp32-p4-wifi6-dev-kit
+```
 
 For direct-USB hardware validation and opt-in diagnostic capture instructions, see the [TONEX Hardware Test Checklist](docs/TONEX_HARDWARE_TEST_CHECKLIST.md).
 

@@ -176,7 +176,10 @@ void setupWebServer() {
     if (webServerStarted) return;
 
     if (!filesystemMounted) {
-        filesystemMounted = LittleFS.begin(true);
+        // The 16 MB partition table names this SPIFFS-subtype partition "littlefs".
+        // Arduino defaults to the partition label "spiffs", so pass the configured
+        // label explicitly or the web assets cannot be mounted after boot.
+        filesystemMounted = LittleFS.begin(true, "/littlefs", 10, "littlefs");
         Serial.println(filesystemMounted ? "[FS] LittleFS mounted successfully" : "[FS] Error mounting LittleFS");
     }
 

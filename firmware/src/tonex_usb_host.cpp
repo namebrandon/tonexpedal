@@ -184,7 +184,12 @@ void ToneXUsbHost::handleNewDevice(uint8_t address) {
 
     _deviceHandle = device;
     _activePreset = -1;
-    claimMidiInterface(configuration);
+    if (!claimMidiInterface(configuration)) {
+        Serial.println("[USB] TONEX enumerated, but its MIDI transport is unavailable");
+        _deviceHandle = nullptr;
+        usb_host_device_close(_clientHandle, device);
+        return;
+    }
     claimCdcInterfaces(configuration);
     _connected = true;
     Serial.printf("[USB] TONEX connected at address %u\n", address);

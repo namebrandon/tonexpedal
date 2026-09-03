@@ -13,7 +13,9 @@ LedStatus::LedStatus() : _state(LedState::OFF), _lastBlink(0), _blinkOn(false) {
 
 void LedStatus::begin() {
 #ifndef NATIVE_TEST
+#if PIN_RGB_LED >= 0
     pinMode(PIN_RGB_LED, OUTPUT);
+#endif
     setState(LedState::WIFI_CONNECTING);
 #endif
 }
@@ -71,6 +73,12 @@ void LedStatus::update() {
 
 void LedStatus::setColor(uint8_t r, uint8_t g, uint8_t b) {
 #ifndef NATIVE_TEST
+#if PIN_RGB_LED >= 0
     neopixelWrite(PIN_RGB_LED, r, g, b);
+#else
+    (void)r;
+    (void)g;
+    (void)b;
+#endif
 #endif
 }

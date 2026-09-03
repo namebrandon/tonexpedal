@@ -245,18 +245,36 @@ Focused reverb-parameter testing established an observability limitation:
 - The proposed Room Mix `CC74` command was delivered through CoreMIDI as `0`, `127`, and a final value of `64` (50%). The pedal display showed no visible change during the controlled, delayed observation window.
 - This does not disprove an audio-only Room Mix change, but neither CDC nor the pedal display can confirm it. Keep advanced reverb parameters out of the browser's confirmed controls until an audio/headphone test or a TONEX Editor traffic capture validates a full-size Pedal command and its behavior.
 
-## 5. ESP32 WLAN and USB-MIDI Vertical Slice
+## 5. ESP32-P4 Wi-Fi 6 and USB-MIDI Vertical Slice
 
-- Configure `firmware/include/wifi_secrets.h`, then upload both firmware and LittleFS data.
-- Confirm the ESP32 logs a DHCP address and that another device on the same WLAN can open it.
-- Connect the TONEX to the native USB host port and retain the logged device, interface, and endpoint descriptors.
-- Confirm the bridge reports the pedal disconnected before attachment and connected after enumeration.
-- Look for `MIDI ready` with the claimed interface and bulk OUT endpoint.
+The production target is `esp32-p4-wifi6-dev-kit`. It uses the Waveshare P4/C6
+board's USB-A high-speed OTG port and onboard Wi-Fi coprocessor. The image is
+built with Arduino-ESP32 3.3.11 through PIOArduino; standard PlatformIO does
+not yet include P4 support.
+
+Before connecting the pedal:
+
+```bash
+cd firmware
+pio run -e esp32-p4-wifi6-dev-kit
+pio run -e esp32-p4-wifi6-dev-kit -t upload --upload-port PORT
+pio run -e esp32-p4-wifi6-dev-kit -t uploadfs --upload-port PORT
+```
+
+- Set the board's **USB OTG** jumper to **HOST**.
+- Use the Type-C UART port for power, flashing, and serial logs; do not use the USB-A host port for the computer.
+- The build replaces only ESP-IDF's USB hub object with a 1 KB control-transfer buffer. This is required because the TONEX configuration descriptor is 419 bytes; the Arduino default is 256 bytes.
+- Confirm the P4 boot log reports the ESP32-C6 hosted Wi-Fi transport, obtains a DHCP address, and is reachable from another WLAN device. The P4 host image and C6 slave firmware are a matched pair; if Hosted initialization fails, record both versions before replacing the C6 firmware.
+- Connect the powered TONEX to USB-A. Retain the logged VID/PID and descriptor lines.
+- A valid attachment requires both `MIDI ready` and `TONEX connected`. Enumeration alone is not treated as a usable connection.
 - Look for `CDC claimed`, followed by `CDC transport ready`, and retain any control-transfer error.
 - From the remotely hosted application, select `00A`, `42B`, `42C`, and `49C` and verify each change on the pedal.
 - Start a bridge preset sync and confirm Hello, State, and all 150 preset responses complete without `sync_failed`.
 - Spot-check names and AMP/CAB flags around presets 0, 127, 128, and 149.
-- Cancel a second sync, confirm the LED and UI return to connected state, then start it again.
-- Unplug and reconnect the pedal, then repeat one preset change without rebooting the ESP32.
+- Unplug and reconnect the pedal, then repeat one preset change without rebooting the P4.
+
+If the board reports an ESP32-P4 revision below v3.0, stop before flashing this
+image and rebuild for that revision family. The default target is for current
+production P4 silicon (v3.x).
 
 If MIDI does not become ready, do not guess endpoint numbers in code. Preserve the descriptor log and update the interface matcher from that evidence.

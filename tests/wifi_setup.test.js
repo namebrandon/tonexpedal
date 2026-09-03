@@ -7,6 +7,7 @@ const { validateWifiSettings } = require('../tools/bridge_simulator');
 const rootDir = path.join(__dirname, '..');
 const setupSource = fs.readFileSync(path.join(rootDir, 'setup.html'), 'utf8');
 const firmwareSource = fs.readFileSync(path.join(rootDir, 'firmware/src/main.cpp'), 'utf8');
+const partitionTable = fs.readFileSync(path.join(rootDir, 'firmware/partitions_16MB.csv'), 'utf8');
 
 function loadBrowserValidator() {
     const byteMatch = setupSource.match(/function byteLength\(value\) \{[\s\S]*?\n        \}/);
@@ -84,5 +85,10 @@ describe('Wi-Fi setup firmware contract', () => {
         assert.match(firmwareSource, /WiFi\.mode\(WIFI_AP_STA\)/);
         assert.match(firmwareSource, /WiFi\.mode\(WIFI_STA\)/);
         assert.match(firmwareSource, /stopSetupAccessPoint\(\)/);
+    });
+
+    it('mounts the LittleFS partition using the label in the production partition table', () => {
+        assert.match(partitionTable, /^littlefs,\s*data,\s*spiffs,/m);
+        assert.match(firmwareSource, /LittleFS\.begin\(true, "\/littlefs", 10, "littlefs"\)/);
     });
 });
