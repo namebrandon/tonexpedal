@@ -31,6 +31,14 @@
             </div>
 
             <form id="wifi-form" novalidate>
+                <label for="network-list">Nearby networks</label>
+                <div class="network-scan-row">
+                    <button type="button" class="secondary" id="scan-button">SCAN FOR NETWORKS</button>
+                    <span class="scan-status" id="scan-status" aria-live="polite"></span>
+                </div>
+                <select id="network-list" name="network-list" hidden aria-label="Nearby Wi-Fi networks"></select>
+                <span class="field-hint">Choose a discovered network to fill its name, or enter an SSID manually for a hidden network.</span>
+
                 <label for="ssid">Network name (SSID)</label>
                 <input id="ssid" name="ssid" type="text" maxlength="32" autocomplete="off" required>
                 <span class="field-error" id="ssid-error"></span>
@@ -74,6 +82,9 @@
         const openNetwork = document.getElementById('open-network');
         const saveButton = document.getElementById('save-button');
         const forgetButton = document.getElementById('forget-button');
+        const scanButton = document.getElementById('scan-button');
+        const scanStatus = document.getElementById('scan-status');
+        const networkList = document.getElementById('network-list');
         const result = document.getElementById('result');
         const deviceState = document.getElementById('device-state');
         const deviceStateText = document.getElementById('device-state-text');
@@ -133,6 +144,64 @@
             if (openNetwork.checked) password.value = '';
         }
 
+        function setScanReady() {
+            scanButton.disabled = false;
+            scanButton.textContent = 'SCAN FOR NETWORKS';
+        }
+
+        function renderNetworks(networks) {
+            networkList.replaceChildren();
+            const prompt = document.createElement('option');
+            prompt.value = '';
+            prompt.textContent = 'Choose a nearby network…';
+            prompt.selected = true;
+            networkList.append(prompt);
+
+            for (const network of networks) {
+                const option = document.createElement('option');
+                option.value = network.ssid;
+                option.dataset.secure = network.secure ? 'true' : 'false';
+                option.textContent = `${network.ssid} · ${network.rssi} dBm · ${network.secure ? 'secured' : 'open'}`;
+                networkList.append(option);
+            }
+            networkList.hidden = false;
+            scanStatus.textContent = `${networks.length} network${networks.length === 1 ? '' : 's'} found`;
+        }
+
+        async function readScan() {
+            const response = await fetch('/api/wifi/scan', { cache: 'no-store' });
+            if (!response.ok) throw new Error('The bridge could not scan for Wi-Fi networks.');
+            const scan = await response.json();
+            if (scan.scanning) {
+                window.setTimeout(readScan, 500);
+                return;
+            }
+
+            setScanReady();
+            const networks = Array.isArray(scan.networks) ? scan.networks : [];
+            if (networks.length) {
+                renderNetworks(networks);
+            } else {
+                networkList.hidden = true;
+                scanStatus.textContent = 'No visible networks found — enter an SSID manually.';
+            }
+        }
+
+        async function startScan() {
+            scanButton.disabled = true;
+            scanButton.textContent = 'SCANNING…';
+            scanStatus.textContent = 'Looking for nearby networks…';
+            networkList.hidden = true;
+            try {
+                const response = await fetch('/api/wifi/scan', { method: 'POST' });
+                if (!response.ok) throw new Error('The bridge could not start a Wi-Fi scan.');
+                await readScan();
+            } catch (error) {
+                setScanReady();
+                scanStatus.textContent = error.message;
+            }
+        }
+
         async function loadStatus() {
             try {
                 const response = await fetch('/api/wifi', { cache: 'no-store' });
@@ -166,6 +235,15 @@
         }
 
         openNetwork.addEventListener('change', updateOpenNetwork);
+        scanButton.addEventListener('click', startScan);
+        networkList.addEventListener('change', () => {
+            const selected = networkList.selectedOptions[0];
+            if (!selected || !selected.value) return;
+            ssid.value = selected.value;
+            openNetwork.checked = selected.dataset.secure === 'false';
+            updateOpenNetwork();
+            password.focus();
+        });
         hostname.addEventListener('input', () => {
             hostname.value = hostname.value.toLowerCase().replace(/\s+/g, '-');
         });

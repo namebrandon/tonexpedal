@@ -178,7 +178,8 @@ label:first-child {
 }
 
 input[type="text"],
-input[type="password"] {
+input[type="password"],
+select {
     width: 100%;
     height: 43px;
     padding: 0 12px;
@@ -202,6 +203,27 @@ input[aria-invalid="true"] {
 
 input:disabled {
     opacity: 0.55;
+}
+
+.network-scan-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.network-scan-row button {
+    min-width: 168px;
+}
+
+.scan-status {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+select {
+    margin-top: 9px;
+    padding-right: 34px;
 }
 
 .field-hint,

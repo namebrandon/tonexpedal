@@ -23,6 +23,7 @@ static bool filesystemMounted = false;
 static bool mdnsStarted = false;
 static bool wifiWasConnected = false;
 static bool wifiSetupMode = false;
+static bool wifiScanActive = false;
 static bool wifiSettingsFromNvs = false;
 static uint32_t lastWifiReconnectMs = 0;
 static uint32_t restartAtMs = 0;
@@ -30,6 +31,28 @@ static String setupAccessPointSsid;
 static WifiSettings wifiSettings;
 
 void setupWebServer();
+
+static void clearWifiScan() {
+    WiFi.scanDelete();
+    wifiScanActive = false;
+}
+
+static bool startWifiScan() {
+    if (wifiScanActive) return true;
+
+    // Keep the setup AP online while the station interface scans. The result is
+    // collected asynchronously so the HTTP server remains available to the phone
+    // that is connected to that AP.
+    WiFi.scanDelete();
+    if (WiFi.scanNetworks(true, true) != WIFI_SCAN_RUNNING) {
+        Serial.println("[WIFI] Could not start setup-network scan");
+        return false;
+    }
+
+    wifiScanActive = true;
+    Serial.println("[WIFI] Setup-network scan started");
+    return true;
+}
 
 static void sendJson(AsyncWebServerRequest* request, int status, const JsonDocument& doc) {
     String payload;
@@ -115,6 +138,7 @@ static void startSetupAccessPoint(const char* reason) {
 
 static void stopSetupAccessPoint() {
     if (!wifiSetupMode) return;
+    clearWifiScan();
     WiFi.softAPdisconnect(true);
     wifiSetupMode = false;
     setupAccessPointSsid = "";
@@ -216,6 +240,49 @@ void setupWebServer() {
             doc["setup_ip"] = WiFi.softAPIP().toString();
         }
         sendJson(request, 200, doc);
+    });
+
+    server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (!wifiSetupMode) {
+            request->send(403, "application/json", "{\"error\":\"setup_required\"}");
+            return;
+        }
+
+        JsonDocument doc;
+        const int scanResult = WiFi.scanComplete();
+        const bool scanning = wifiScanActive && scanResult == WIFI_SCAN_RUNNING;
+        if (!scanning) wifiScanActive = false;
+        doc["scanning"] = scanning;
+
+        if (!scanning && scanResult >= 0) {
+            JsonArray networks = doc["networks"].to<JsonArray>();
+            constexpr int MAX_SETUP_NETWORKS = 24;
+            for (int index = 0; index < scanResult && networks.size() < MAX_SETUP_NETWORKS; index++) {
+                const String ssid = WiFi.SSID(index);
+                if (ssid.isEmpty()) continue; // Hidden networks can still be entered manually.
+
+                JsonObject network = networks.add<JsonObject>();
+                network["ssid"] = ssid;
+                network["rssi"] = WiFi.RSSI(index);
+                network["secure"] = WiFi.encryptionType(index) != WIFI_AUTH_OPEN;
+            }
+        }
+
+        sendJson(request, 200, doc);
+    });
+
+    server.on("/api/wifi/scan", HTTP_POST, [](AsyncWebServerRequest* request) {
+        if (!wifiSetupMode) {
+            request->send(403, "application/json", "{\"error\":\"setup_required\"}");
+            return;
+        }
+
+        if (!startWifiScan()) {
+            request->send(503, "application/json", "{\"error\":\"scan_unavailable\"}");
+            return;
+        }
+
+        request->send(202, "application/json", "{\"scanning\":true}");
     });
 
     AsyncCallbackJsonWebHandler* wifiHandler = new AsyncCallbackJsonWebHandler(

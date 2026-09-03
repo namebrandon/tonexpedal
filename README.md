@@ -74,7 +74,7 @@ Simply double-click `index.html` or open it via `file:///` in your browser.
 For remote control from iOS Safari (iPad/iPhone) on your couch or stage with zero computer running:
 1. Flash the firmware and LittleFS data in [`firmware/`](firmware/) to a **Waveshare ESP32-P4-WIFI6-DEV-KIT**. It pairs an ESP32-P4 high-speed USB host with an ESP32-C6 Wi-Fi/BLE coprocessor.
 2. On first boot, join the temporary `TONEX-Setup-XXXXXX` network using password `tonexsetup`, then open `http://192.168.4.1`.
-3. Enter the existing WLAN name/password and save. The temporary setup network stops after the bridge joins that WLAN.
+3. Select **Scan for networks** to choose a nearby WLAN (or enter a hidden SSID manually), enter its password, and save. The temporary setup network remains online during the scan and stops after the bridge joins that WLAN.
 4. Rejoin the normal WLAN and open `http://tonex.local` (or the custom device name entered during setup).
 5. Set the board's USB-OTG jumper to **HOST**, power/program through its Type-C UART port, and connect TONEX to its USB-A OTG port.
 

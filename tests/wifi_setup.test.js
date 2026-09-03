@@ -87,6 +87,17 @@ describe('Wi-Fi setup firmware contract', () => {
         assert.match(firmwareSource, /stopSetupAccessPoint\(\)/);
     });
 
+    it('offers a setup-only asynchronous scan without dropping the setup AP', () => {
+        assert.match(firmwareSource, /server\.on\("\/api\/wifi\/scan", HTTP_GET/);
+        assert.match(firmwareSource, /server\.on\("\/api\/wifi\/scan", HTTP_POST/);
+        assert.match(firmwareSource, /if \(!wifiSetupMode\)[\s\S]*?"setup_required"/);
+        assert.match(firmwareSource, /WiFi\.scanNetworks\(true, true\)/);
+        assert.match(setupSource, /id="scan-button"/);
+        assert.match(setupSource, /id="network-list"/);
+        assert.match(setupSource, /fetch\('\/api\/wifi\/scan', \{ method: 'POST' \}\)/);
+        assert.match(setupSource, /enter an SSID manually/);
+    });
+
     it('mounts the LittleFS partition using the label in the production partition table', () => {
         assert.match(partitionTable, /^littlefs,\s*data,\s*spiffs,/m);
         assert.match(firmwareSource, /LittleFS\.begin\(true, "\/littlefs", 10, "littlefs"\)/);
