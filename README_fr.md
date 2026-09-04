@@ -32,7 +32,7 @@ Démo vidéo Android :
 - **Bascule bibliothèque** — chevron discret pour minimiser/étendre la bibliothèque de presets
 - **Export/Import JSON** — exporte les noms de presets vers un fichier, importe sur une autre config
 - **Support Android** — fonctionne sur Android Chrome via fallback WebUSB (Web Serial non disponible sur Android)
-- **Pont Sans Fil (ESP32-S3)** — contrôle à distance autonome en Wi-Fi depuis Safari iOS ou tout navigateur LAN, sans aucun ordinateur requis
+- **Pont sans fil (ESP32-P4 Wi-Fi 6)** — contrôle à distance autonome en Wi-Fi depuis Safari iOS ou tout navigateur LAN, sans aucun ordinateur requis
 
 ## Prérequis
 
@@ -71,16 +71,23 @@ Puis ouvrir `http://localhost:3000`.
 
 Simplement double-cliquer sur `index.html` ou l'ouvrir via `file:///` dans votre navigateur.
 
-### Option 4 — Pont Sans Fil Autonome (ESP32-S3)
+### Option 4 — Pont sans fil autonome (ESP32-P4 Wi-Fi 6)
 
 Pour contrôler la pédale depuis Safari iOS (iPad/iPhone) sur le canapé ou sur scène sans aucun PC allumé :
-1. Copier `firmware/include/wifi_secrets.example.h` vers `firmware/include/wifi_secrets.h` et renseigner les identifiants du WLAN existant.
-2. Flasher le firmware et les données LittleFS situés dans [`firmware/`](firmware/) sur une carte **ESP32-S3-DevKit** ([Exemple Amazon](https://www.amazon.com/dp/B0GBT212KM)).
-3. Imprimer en 3D un boîtier clipsable ([Modèle 3D Printables](https://www.printables.com/model/1774744-case-for-yd-esp32-s3-n16r8)).
-4. Connecter l'ESP32 à la ToneX Pedal en USB et l'alimenter en 5V (ou via une dérivation 9V).
-5. Relever l'adresse DHCP dans le journal série, puis ouvrir cette adresse ou `http://tonex.local` depuis un navigateur connecté au même WLAN.
+1. Flasher le firmware et les données LittleFS de [`firmware/`](firmware/) sur une **Waveshare ESP32-P4-WIFI6-DEV-KIT**. Elle associe un ESP32-P4 avec hôte USB 2.0 haute vitesse réel et un coprocesseur Wi-Fi/Bluetooth ESP32-C6 ; le P4 ne possède pas de Wi-Fi intégré.
+2. Utiliser au besoin le [boîtier imprimable en 3D pour ESP32-P4-WIFI6-DEV-KIT sur MakerWorld](https://makerworld.com/en/models/2963178-waveshare-esp32-p4-wifi6-dev-kit-development-board#profileId-3321938). Vérifier l'alignement des ouvertures USB-A, Type-C UART, RESET et BOOT avec la carte reçue avant l'impression définitive.
+3. Positionner le cavalier USB-OTG de la carte sur **HOST**, connecter la TONEX Pedal au port USB-A OTG, puis utiliser le port **Type-C UART** pour l'alimentation 5 V, le flashage et les journaux série. Ne pas utiliser l'autre connexion USB de la carte comme port hôte TONEX.
+4. Au premier démarrage, rejoindre le réseau temporaire `TONEX-Setup-XXXXXX` avec le mot de passe `tonexsetup`, puis ouvrir `http://192.168.4.1`.
+5. Choisir **Scan for networks** pour sélectionner un WLAN proche (ou saisir manuellement un SSID masqué), entrer son mot de passe puis enregistrer. Le réseau de configuration temporaire reste actif pendant le scan et s'arrête une fois la connexion établie.
+6. Rejoindre le WLAN normal puis ouvrir `http://tonex.local` (ou le nom d'appareil personnalisé choisi pendant la configuration).
 
-Voir le guide complet : [Documentation du Pont Sans Fil ESP32-S3](docs/ESP32_WIRELESS_BRIDGE_fr.md).
+L'ancien matériel ESP32-S3 peut servir l'application web, mais il ne peut pas faire fonctionner cette TONEX en USB : la pédale requiert des endpoints bulk haute vitesse, alors que l'hôte S3 est limité au full-speed.
+
+Le point d'accès de configuration est uniquement destiné au provisionnement et à la récupération ; le contrôleur utilise normalement le mode station Wi-Fi. Il n'y a pas encore de redirection de portail captif : ouvrir explicitement `192.168.4.1`. Pour une unité déployée, remplacer `TONEX_SETUP_AP_PASSWORD` dans la configuration de build plutôt que de conserver le mot de passe de développement. Les identifiants facultatifs dans `wifi_secrets.h` restent pris en charge comme solution de repli.
+
+Pour utiliser le pont sur un WLAN différent, redémarrer l'ESP32. Il essaie le réseau enregistré pendant 15 secondes, puis ouvre le réseau de configuration si la connexion échoue. Enregistrer le WLAN du lieu remplace les anciens identifiants. Le firmware actuel ne possède pas encore de bouton physique dédié au provisionnement ; un redémarrage est donc nécessaire pour entrer en mode configuration quand le pont est déjà en fonctionnement.
+
+Pour le build, le flashage, le Wi-Fi hébergé par le C6 et les vérifications USB-MIDI à l'arrivée de la carte, consulter la [checklist matérielle ESP32-P4](docs/TONEX_HARDWARE_TEST_CHECKLIST.md).
 
 ## Utilisation
 
@@ -147,9 +154,9 @@ tonexpedal/
 │   └── ESP32_WIRELESS_BRIDGE_fr.md# Guide technique ESP32 (FR)
 ├── captures/
 │   └── tnx1.png                   # Capture d'écran de l'interface
-├── firmware/                      # Firmware PlatformIO autonome pour ESP32-S3
-│   ├── platformio.ini             # Config de build pour ESP32-S3 et tests natifs
-│   ├── partitions_16MB.csv        # Carte des partitions flash LittleFS
+├── firmware/                      # Firmware autonome ESP32-S3 historique et ESP32-P4
+│   ├── platformio.ini             # Config de build de la cible P4 Wi-Fi 6 et des tests natifs
+│   ├── partitions_p4_16MB.csv     # Carte des partitions OTA et LittleFS du P4
 │   ├── include/                   # En-têtes C++ (HDLC, USB Host, pont WebSocket)
 │   ├── src/                       # Fichiers sources C++
 │   ├── test/                      # Tests unitaires C++ Unity
@@ -173,7 +180,14 @@ python3 -m pip install -r requirements-dev.txt
 cd firmware && pio test -e native
 ```
 
-La cible ESP32 utilise PlatformIO Espressif32 7.0.1 avec une configuration N16R8 explicite (16 Mo de flash et 8 Mo de PSRAM octale).
+La cible ESP32-S3 historique utilise PlatformIO Espressif32 7.0.1 avec une configuration N16R8 explicite. La cible de production P4 utilise la plateforme PIOArduino (Arduino-ESP32 3.3.11), car la plateforme PlatformIO officielle ne prend pas encore en charge l'ESP32-P4.
+
+Construire l'image du pont P4 avec :
+
+```bash
+cd firmware
+pio run -e esp32-p4-wifi6-dev-kit
+```
 
 Pour la validation matérielle USB directe et la capture de diagnostic optionnelle, consultez la [checklist de test matériel TONEX](docs/TONEX_HARDWARE_TEST_CHECKLIST.md).
 

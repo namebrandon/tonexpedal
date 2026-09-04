@@ -32,7 +32,7 @@ Android demo vido:
 - **Library toggle** — discreet chevron to minimize/expand the preset library
 - **Export/Import JSON** — export preset names to a file, import them on another setup
 - **Android support** — works on Android Chrome via WebUSB fallback (Web Serial not available on Android)
-- **Wireless Bridge (ESP32-S3)** — standalone Wi-Fi remote control from iOS Safari or any LAN browser with zero computer required
+- **Wireless Bridge (ESP32-P4 Wi-Fi 6)** — standalone Wi-Fi remote control from iOS Safari or any LAN browser with zero computer required
 
 ## Prerequisites
 
@@ -72,11 +72,12 @@ Simply double-click `index.html` or open it via `file:///` in your browser.
 ### Option 4 — Standalone Wireless Bridge (ESP32-P4 Wi-Fi 6)
 
 For remote control from iOS Safari (iPad/iPhone) on your couch or stage with zero computer running:
-1. Flash the firmware and LittleFS data in [`firmware/`](firmware/) to a **Waveshare ESP32-P4-WIFI6-DEV-KIT**. It pairs an ESP32-P4 high-speed USB host with an ESP32-C6 Wi-Fi/BLE coprocessor.
-2. On first boot, join the temporary `TONEX-Setup-XXXXXX` network using password `tonexsetup`, then open `http://192.168.4.1`.
-3. Select **Scan for networks** to choose a nearby WLAN (or enter a hidden SSID manually), enter its password, and save. The temporary setup network remains online during the scan and stops after the bridge joins that WLAN.
-4. Rejoin the normal WLAN and open `http://tonex.local` (or the custom device name entered during setup).
-5. Set the board's USB-OTG jumper to **HOST**, power/program through its Type-C UART port, and connect TONEX to its USB-A OTG port.
+1. Flash the firmware and LittleFS data in [`firmware/`](firmware/) to a **Waveshare ESP32-P4-WIFI6-DEV-KIT**. It combines an ESP32-P4 with genuine USB 2.0 high-speed host support and an ESP32-C6 Wi-Fi/Bluetooth coprocessor; the P4 itself has no onboard Wi-Fi.
+2. Optionally use the matching [ESP32-P4-WIFI6-DEV-KIT 3D-printable case on MakerWorld](https://makerworld.com/en/models/2963178-waveshare-esp32-p4-wifi6-dev-kit-development-board#profileId-3321938). Confirm the USB-A, Type-C UART, RESET, and BOOT openings match the received board before finalizing a print.
+3. Set the board's USB-OTG jumper to **HOST**, connect the TONEX Pedal to the USB-A OTG port, and use the **Type-C UART** port for 5 V power, programming, and serial logs. Do not use the board's other USB connection as the TONEX host port.
+4. On first boot, join the temporary `TONEX-Setup-XXXXXX` network using password `tonexsetup`, then open `http://192.168.4.1`.
+5. Select **Scan for networks** to choose a nearby WLAN (or enter a hidden SSID manually), enter its password, and save. The temporary setup network remains online during the scan and stops after the bridge joins that WLAN.
+6. Rejoin the normal WLAN and open `http://tonex.local` (or the custom device name entered during setup).
 
 The previous ESP32-S3 hardware can run the web application, but it cannot operate this TONEX over USB: the pedal requires high-speed bulk endpoints, while the S3 host is full-speed-only.
 
@@ -90,10 +91,12 @@ an optional fallback.
 To use the bridge at a venue with a different WLAN, power-cycle the ESP32. It tries
 the saved network for 15 seconds, then opens the setup network when that connection
 fails. Join it, browse to `192.168.4.1`, and save the venue WLAN; the new settings
-replace the old ones. V1 has no physical provisioning/reset button, so a power cycle
-is currently required to enter setup mode after the bridge has already been running.
+replace the old ones. The current firmware has no dedicated physical provisioning
+button, so a power cycle is currently required to enter setup mode after the bridge
+has already been running.
 
-See full guide: [ESP32-S3 Wireless Bridge Documentation](docs/ESP32_WIRELESS_BRIDGE.md).
+For the arrival-day build, flashing, C6 hosted-Wi-Fi, and USB-MIDI checks, see the
+[ESP32-P4 hardware test checklist](docs/TONEX_HARDWARE_TEST_CHECKLIST.md).
 
 ## Usage
 
@@ -170,9 +173,9 @@ tonexpedal/
 │   └── ESP32_WIRELESS_BRIDGE_fr.md# ESP32 Bridge technical guide (FR)
 ├── captures/
 │   └── tnx1.png                   # Interface screenshot
-├── firmware/                      # Standalone ESP32-S3 PlatformIO firmware
-│   ├── platformio.ini             # Build config for ESP32-S3 & native tests
-│   ├── partitions_16MB.csv        # LittleFS flash partition map
+├── firmware/                      # Standalone ESP32-S3 legacy and ESP32-P4 firmware
+│   ├── platformio.ini             # Build config for the P4 Wi-Fi 6 target and native tests
+│   ├── partitions_p4_16MB.csv     # P4 OTA and LittleFS flash partition map
 │   ├── include/                   # C++ headers (HDLC, USB Host, WebSocket bridge)
 │   ├── src/                       # C++ source files
 │   ├── test/                      # C++ Unity unit tests
