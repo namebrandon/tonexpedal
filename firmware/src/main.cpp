@@ -8,6 +8,7 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 #include "config.h"
 #include "led_status.h"
@@ -25,7 +26,9 @@ static bool wifiWasConnected = false;
 static bool wifiSetupMode = false;
 static bool wifiScanActive = false;
 static bool wifiSettingsFromNvs = false;
-static uint32_t lastWifiReconnectMs = 0;
+static int wifiLastDisconnectReason = 0;
+static int wifiLastScanResult = WIFI_SCAN_FAILED;
+static uint32_t wifiScanStartedMs = 0;
 static uint32_t restartAtMs = 0;
 static String setupAccessPointSsid;
 static WifiSettings wifiSettings;
@@ -40,24 +43,92 @@ static void clearWifiScan() {
 static bool startWifiScan() {
     if (wifiScanActive) return true;
 
-    // Keep the setup AP online while the station interface scans. The result is
-    // collected asynchronously so the HTTP server remains available to the phone
-    // that is connected to that AP.
+    // ESP-Hosted's factory C6 firmware can complete a scan before an HTTP client
+    // has issued its first polling request. Run this bounded scan in the request
+    // instead, so the result is captured before the browser asks for it.
     WiFi.scanDelete();
-    if (WiFi.scanNetworks(true, true) != WIFI_SCAN_RUNNING) {
-        Serial.println("[WIFI] Could not start setup-network scan");
+    WiFi.setScanTimeout(15000);
+    wifiLastScanResult = WIFI_SCAN_FAILED;
+    // An active scan gives the best chance of finding ordinary, non-hidden 2.4 GHz
+    // networks. This bridge's C6 radio is a 2.4 GHz radio; 5 GHz-only networks
+    // cannot be listed or joined.
+    wifiScanActive = true;
+    wifiScanStartedMs = millis();
+    wifiLastScanResult = WiFi.scanNetworks(false, true, false, 120);
+    wifiScanActive = false;
+
+    const uint32_t elapsedMs = millis() - wifiScanStartedMs;
+    if (wifiLastScanResult < 0) {
+        Serial.printf("[WIFI] Setup-network scan failed after %lu ms (result %d).\n",
+                      static_cast<unsigned long>(elapsedMs), wifiLastScanResult);
         return false;
     }
 
-    wifiScanActive = true;
-    Serial.println("[WIFI] Setup-network scan started");
+    Serial.printf(
+        "[WIFI] Setup-network scan found %d network(s) in %lu ms.\n",
+        wifiLastScanResult,
+        static_cast<unsigned long>(elapsedMs)
+    );
     return true;
+}
+
+static const char* wifiStatusName(wl_status_t status) {
+    switch (status) {
+        case WL_NO_SHIELD: return "no_shield";
+        case WL_IDLE_STATUS: return "idle";
+        case WL_NO_SSID_AVAIL: return "ssid_not_found";
+        case WL_SCAN_COMPLETED: return "scan_completed";
+        case WL_CONNECTED: return "connected";
+        case WL_CONNECT_FAILED: return "connect_failed";
+        case WL_CONNECTION_LOST: return "connection_lost";
+        case WL_DISCONNECTED: return "disconnected";
+        default: return "unknown";
+    }
+}
+
+static void logWiFiEvent(arduino_event_id_t event, arduino_event_info_t info) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+        wifiLastDisconnectReason = info.wifi_sta_disconnected.reason;
+        const auto reason = static_cast<wifi_err_reason_t>(wifiLastDisconnectReason);
+        Serial.printf(
+            "[WIFI] Station disconnect reason %d (%s)\n",
+            wifiLastDisconnectReason,
+            WiFi.disconnectReasonName(reason)
+        );
+    } else if (event == ARDUINO_EVENT_WIFI_STA_CONNECTED) {
+        wifiLastDisconnectReason = 0;
+        Serial.println("[WIFI] Station associated; waiting for an IP address.");
+    } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+        Serial.println("[WIFI] Station received an IP address.");
+    } else if (event == ARDUINO_EVENT_WIFI_SCAN_DONE) {
+        Serial.println("[WIFI] Setup-network scan completed.");
+    }
 }
 
 static void sendJson(AsyncWebServerRequest* request, int status, const JsonDocument& doc) {
     String payload;
     serializeJson(doc, payload);
     request->send(status, "application/json", payload);
+}
+
+static void appendScanNetworks(JsonDocument& doc) {
+    JsonArray networks = doc["networks"].to<JsonArray>();
+    constexpr int MAX_SETUP_NETWORKS = 24;
+    for (int index = 0; index < wifiLastScanResult && networks.size() < MAX_SETUP_NETWORKS; index++) {
+        const String ssid = WiFi.SSID(index);
+        if (ssid.isEmpty()) continue; // Hidden networks can still be entered manually.
+
+        JsonObject network = networks.add<JsonObject>();
+        network["ssid"] = ssid;
+        network["rssi"] = WiFi.RSSI(index);
+        network["secure"] = WiFi.encryptionType(index) != WIFI_AUTH_OPEN;
+        network["channel"] = WiFi.channel(index);
+    }
+    Serial.printf(
+        "[WIFI] Returning %u visible network(s) from %d scan record(s).\n",
+        static_cast<unsigned>(networks.size()),
+        wifiLastScanResult
+    );
 }
 
 static bool loadWifiSettings() {
@@ -118,6 +189,12 @@ static void startSetupAccessPoint(const char* reason) {
 
     wifiSetupMode = true;
     setupAccessPointSsid = makeSetupAccessPointSsid();
+    // Setup mode must be able to scan even if the previously saved network has
+    // disappeared. Keep the station interface available for scanning, but stop
+    // Arduino from repeatedly attempting that stale connection in the background.
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect(false, false);
+    delay(100);
     WiFi.mode(WIFI_AP_STA);
     const bool started = WiFi.softAP(setupAccessPointSsid.c_str(), TONEX_SETUP_AP_PASSWORD);
 
@@ -148,6 +225,18 @@ static void stopSetupAccessPoint() {
 static void startNetworkServices() {
     stopSetupAccessPoint();
 
+    // Reassert this after association/DHCP as well. Some radio firmware resets
+    // its power-save policy while it establishes a station connection.
+    if (!WiFi.setSleep(false)) {
+        Serial.println("[WIFI] Warning: could not disable connected-station power saving.");
+    }
+    wifi_ps_type_t powerSaveMode = WIFI_PS_NONE;
+    if (esp_wifi_get_ps(&powerSaveMode) == ESP_OK) {
+        Serial.printf("[WIFI] Station power-save mode: %d (0 means disabled).\n", powerSaveMode);
+    } else {
+        Serial.println("[WIFI] Warning: could not read station power-save mode.");
+    }
+
     const IPAddress address = WiFi.localIP();
     Serial.print("[WIFI] Connected. IP address: ");
     Serial.println(address);
@@ -173,6 +262,12 @@ bool setupWiFi() {
 
     Serial.printf("[WIFI] Connecting to station network: %s\n", wifiSettings.ssid.c_str());
     WiFi.mode(WIFI_STA);
+    // This bridge carries interactive MIDI control traffic and is externally
+    // powered. Avoid modem sleep, which can defer inbound packets until a DTIM
+    // wake interval and produce highly variable control latency.
+    if (!WiFi.setSleep(false)) {
+        Serial.println("[WIFI] Warning: could not disable station power saving.");
+    }
     WiFi.setHostname(wifiSettings.hostname.c_str());
     WiFi.setAutoReconnect(true);
     WiFi.begin(
@@ -227,17 +322,30 @@ void setupWebServer() {
 
     server.on("/api/wifi", HTTP_GET, [](AsyncWebServerRequest* request) {
         JsonDocument doc;
+        const wl_status_t stationStatus = WiFi.status();
         doc["setup_mode"] = wifiSetupMode;
         doc["configured"] = !wifiSettings.ssid.empty();
         doc["stored"] = wifiSettingsFromNvs;
         doc["ssid"] = wifiSettings.ssid;
         doc["hostname"] = wifiSettings.hostname;
         doc["open_network"] = wifiSettings.openNetwork;
-        doc["station_connected"] = WiFi.status() == WL_CONNECTED;
-        if (WiFi.status() == WL_CONNECTED) doc["station_ip"] = WiFi.localIP().toString();
+        doc["station_connected"] = stationStatus == WL_CONNECTED;
+        doc["station_status"] = wifiStatusName(stationStatus);
+        doc["station_status_code"] = stationStatus;
+        doc["station_mac"] = WiFi.macAddress();
+        if (wifiLastDisconnectReason > 0) {
+            const auto reason = static_cast<wifi_err_reason_t>(wifiLastDisconnectReason);
+            doc["last_disconnect_reason"] = wifiLastDisconnectReason;
+            doc["last_disconnect"] = WiFi.disconnectReasonName(reason);
+        }
+        if (stationStatus == WL_CONNECTED) {
+            doc["station_ip"] = WiFi.localIP().toString();
+            doc["station_rssi"] = WiFi.RSSI();
+        }
         if (wifiSetupMode) {
             doc["setup_ssid"] = setupAccessPointSsid;
             doc["setup_ip"] = WiFi.softAPIP().toString();
+            doc["setup_mac"] = WiFi.softAPmacAddress();
         }
         sendJson(request, 200, doc);
     });
@@ -249,23 +357,13 @@ void setupWebServer() {
         }
 
         JsonDocument doc;
-        const int scanResult = WiFi.scanComplete();
-        const bool scanning = wifiScanActive && scanResult == WIFI_SCAN_RUNNING;
-        if (!scanning) wifiScanActive = false;
-        doc["scanning"] = scanning;
+        doc["scanning"] = wifiScanActive;
 
-        if (!scanning && scanResult >= 0) {
-            JsonArray networks = doc["networks"].to<JsonArray>();
-            constexpr int MAX_SETUP_NETWORKS = 24;
-            for (int index = 0; index < scanResult && networks.size() < MAX_SETUP_NETWORKS; index++) {
-                const String ssid = WiFi.SSID(index);
-                if (ssid.isEmpty()) continue; // Hidden networks can still be entered manually.
-
-                JsonObject network = networks.add<JsonObject>();
-                network["ssid"] = ssid;
-                network["rssi"] = WiFi.RSSI(index);
-                network["secure"] = WiFi.encryptionType(index) != WIFI_AUTH_OPEN;
-            }
+        if (!wifiScanActive && wifiLastScanResult < 0) {
+            doc["error"] = "scan_failed";
+            doc["message"] = "The Wi-Fi radio did not complete its scan. Try again from the setup network.";
+        } else if (!wifiScanActive && wifiLastScanResult >= 0) {
+            appendScanNetworks(doc);
         }
 
         sendJson(request, 200, doc);
@@ -282,7 +380,10 @@ void setupWebServer() {
             return;
         }
 
-        request->send(202, "application/json", "{\"scanning\":true}");
+        JsonDocument doc;
+        doc["scanning"] = false;
+        appendScanNetworks(doc);
+        sendJson(request, 200, doc);
     });
 
     AsyncCallbackJsonWebHandler* wifiHandler = new AsyncCallbackJsonWebHandler(
@@ -375,14 +476,10 @@ void maintainWiFi() {
         Serial.println("[WIFI] Station disconnected; waiting to reconnect.");
     }
 
-    if (!connected && !wifiSettings.ssid.empty()) {
-        const uint32_t now = millis();
-        if (now - lastWifiReconnectMs >= TONEX_WIFI_RECONNECT_INTERVAL_MS) {
-            lastWifiReconnectMs = now;
-            Serial.println("[WIFI] Station reconnect requested.");
-            WiFi.reconnect();
-        }
-    }
+    // Arduino's station layer owns reconnection when setAutoReconnect(true) is
+    // enabled. Calling WiFi.reconnect() while an association or DHCP exchange is
+    // still in progress forces ASSOC_LEAVE and also makes scans fail with
+    // ESP_ERR_WIFI_STATE.
 }
 
 void setup() {
@@ -393,6 +490,7 @@ void setup() {
     Serial.println("=================================");
 
     StatusLed.begin();
+    WiFi.onEvent(logWiFiEvent);
     ToneX.begin();
     setupWiFi();
     if (WiFi.status() == WL_CONNECTED && ToneX.isConnected()) {

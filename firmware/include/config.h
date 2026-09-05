@@ -29,7 +29,10 @@
 #endif
 
 #ifndef TONEX_WIFI_CONNECT_TIMEOUT_MS
-#define TONEX_WIFI_CONNECT_TIMEOUT_MS 15000
+// ESP-Hosted can take longer than a direct ESP Wi-Fi connection to complete
+// association and DHCP. Do not start the recovery AP while that exchange is
+// still in progress.
+#define TONEX_WIFI_CONNECT_TIMEOUT_MS 60000
 #endif
 
 #ifndef TONEX_WIFI_RECONNECT_INTERVAL_MS

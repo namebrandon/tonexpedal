@@ -1,0 +1,16 @@
+description: "Arduino 3.3.11 core overlay for the factory ESP32-C6 Hosted firmware"
+dependencies:
+  idf: ">=5.3,<6.2"
+  espressif/mdns:
+    version: "^1.11.2"
+    require: public
+  espressif/esp_hosted:
+    version: "1.4.7"
+    rules:
+      - if: "target == esp32p4"
+  espressif/esp_wifi_remote:
+    version: "0.14.5"
+    rules:
+      - if: "target == esp32p4"
+  joltwallet/littlefs:
+    version: "^1.22.1"

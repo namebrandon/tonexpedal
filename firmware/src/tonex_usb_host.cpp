@@ -699,7 +699,7 @@ void ToneXUsbHost::runSync() {
             return;
         }
 
-        const std::vector<uint8_t> response = readCdcResponse(3000);
+        const std::vector<uint8_t> response = readCdcResponse(3000, index);
         if (!_syncing) return;
         if (response.empty()) {
             failSync("Timed out waiting for preset " + std::to_string(index));
@@ -765,7 +765,7 @@ void ToneXUsbHost::handleCdcEvent(const std::vector<uint8_t>& payload) {
     if (_activePresetCb) _activePresetCb(presetIndex);
 }
 
-std::vector<uint8_t> ToneXUsbHost::readCdcResponse(uint32_t timeoutMs) {
+std::vector<uint8_t> ToneXUsbHost::readCdcResponse(uint32_t timeoutMs, int expectedPresetIndex) {
     const uint32_t startedAt = millis();
     while (_connected && _syncing) {
         const uint32_t elapsed = millis() - startedAt;
@@ -777,6 +777,14 @@ std::vector<uint8_t> ToneXUsbHost::readCdcResponse(uint32_t timeoutMs) {
         uint8_t presetIndex = 0;
         if (ToneXHDLC::decodeActivePresetEvent(payload.data(), payload.size(), presetIndex)) {
             handleCdcEvent(payload);
+            continue;
+        }
+        if (expectedPresetIndex >= 0 &&
+            ToneXHDLC::decodePresetResponseIndex(payload.data(), payload.size(), presetIndex) &&
+            presetIndex != static_cast<uint8_t>(expectedPresetIndex)) {
+            // Some pedal revisions emit a queued preset response after a state
+            // query. It is not a reply to the request currently in flight.
+            Serial.printf("[USB] Ignoring stale preset response %u while waiting for %d\n", presetIndex, expectedPresetIndex);
             continue;
         }
         return payload;

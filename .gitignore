@@ -5,6 +5,14 @@ diagnostics/*.json
 # PlatformIO build products
 firmware/.pio/
 
+# ESP-IDF P4 compatibility build products and its checked-out Arduino overlay.
+firmware/p4_legacy/build/
+firmware/p4_legacy/.deps/
+firmware/p4_legacy/sdkconfig
+firmware/p4_legacy/managed_components/
+firmware/p4_legacy/components/tonex_async_tcp/vendor/
+firmware/p4_legacy/components/tonex_async_web/vendor/
+
 # Local Wi-Fi credentials used by the ESP32 firmware
 firmware/include/wifi_secrets.h
 

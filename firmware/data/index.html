@@ -708,6 +708,7 @@
             </div>
             <div class="header-actions">
                 <button id="syncUSB" class="sync-btn primary-action" data-i18n="syncButton" title="Sync preset names via USB">SYNC USB</button>
+                <button id="clearPresets" class="sync-btn" data-i18n="clearPresetsButton" title="Clear synced preset names">CLEAR PRESETS</button>
                 <button id="exportJSON" class="sync-btn" data-i18n="exportButton" title="Export preset names to JSON">EXPORT</button>
                 <button id="importJSON" class="sync-btn" data-i18n="importButton" title="Import preset names from JSON">IMPORT</button>
                 <button id="exportDiagnostics" class="sync-btn" data-i18n="diagnosticsButton" title="Export diagnostic capture" hidden>DIAGNOSTICS</button>
@@ -881,6 +882,10 @@
                 bridgeConnected: 'Connecté (Wi-Fi)',
                 bridgeDevice: 'ToneX (Pont Wi-Fi)',
                 syncButton: 'SYNC USB',
+                clearPresetsButton: 'EFFACER PRESETS',
+                clearPresetsTitle: 'Effacer les noms de presets synchronisés sur cet appareil',
+                clearPresetsConfirm: 'Effacer les presets synchronisés ? Les réglages Wi-Fi et les assignations des boutons sont conservés.',
+                clearPresetsDone: 'Presets synchronisés effacés',
                 exportButton: 'EXPORTER',
                 importButton: 'IMPORTER',
                 diagnosticsButton: 'DIAGNOSTIC',
@@ -978,6 +983,10 @@
                 bridgeConnected: 'Connected (Wi-Fi)',
                 bridgeDevice: 'ToneX (Wi-Fi Bridge)',
                 syncButton: 'SYNC USB',
+                clearPresetsButton: 'CLEAR PRESETS',
+                clearPresetsTitle: 'Clear synced preset names on this device',
+                clearPresetsConfirm: 'Clear synced presets? Wi-Fi settings and button assignments will be kept.',
+                clearPresetsDone: 'Synced presets cleared',
                 exportButton: 'EXPORT',
                 importButton: 'IMPORT',
                 diagnosticsButton: 'DIAGNOSTICS',
@@ -1061,6 +1070,7 @@
             }
 
             document.getElementById('syncUSB').title = t('syncTitle');
+            document.getElementById('clearPresets').title = t('clearPresetsTitle');
             document.getElementById('exportJSON').title = t('exportJSON');
             document.getElementById('importJSON').title = t('importJSON');
             document.getElementById('exportDiagnostics').title = t('exportDiagnostics');
@@ -3220,7 +3230,31 @@
             }
         }
 
+        function clearSyncedPresets() {
+            if (bridgeSyncActive || transportIsOpen()) return;
+            if (!window.confirm(t('clearPresetsConfirm'))) return;
+
+            // Preset names and metadata are browser-local. Keep MIDI settings
+            // and pad assignments so changing pedals never requires rebuilding
+            // the bridge's Wi-Fi configuration.
+            state.presets = {};
+            libraryFreshness = 'empty';
+            saveState();
+            renderLibrary();
+            renderGrid();
+            recordDiagnosticEvent('synced_presets_cleared');
+
+            const ui = syncUiElements();
+            ui.progress.classList.add('active');
+            ui.fill.style.width = '0%';
+            ui.text.textContent = t('clearPresetsDone');
+            if (syncProgressHideTimer) clearTimeout(syncProgressHideTimer);
+            syncProgressHideTimer = setTimeout(() => ui.progress.classList.remove('active'), 3000);
+            updateOperatorHealth();
+        }
+
         document.getElementById('syncUSB').addEventListener('click', syncUSB);
+        document.getElementById('clearPresets').addEventListener('click', clearSyncedPresets);
 
         const diagnosticsButton = document.getElementById('exportDiagnostics');
         if (diagnosticsEnabled) {

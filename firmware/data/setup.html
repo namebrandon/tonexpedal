@@ -178,6 +178,7 @@
             }
 
             setScanReady();
+            if (scan.error) throw new Error(scan.message || 'The bridge could not complete the Wi-Fi scan.');
             const networks = Array.isArray(scan.networks) ? scan.networks : [];
             if (networks.length) {
                 renderNetworks(networks);
@@ -195,7 +196,16 @@
             try {
                 const response = await fetch('/api/wifi/scan', { method: 'POST' });
                 if (!response.ok) throw new Error('The bridge could not start a Wi-Fi scan.');
-                await readScan();
+                const scan = await response.json();
+                setScanReady();
+                if (scan.error) throw new Error(scan.message || 'The bridge could not complete the Wi-Fi scan.');
+                const networks = Array.isArray(scan.networks) ? scan.networks : [];
+                if (networks.length) {
+                    renderNetworks(networks);
+                } else {
+                    networkList.hidden = true;
+                    scanStatus.textContent = 'No visible 2.4 GHz networks found — enter an SSID manually.';
+                }
             } catch (error) {
                 setScanReady();
                 scanStatus.textContent = error.message;
@@ -215,8 +225,10 @@
 
                 if (status.setup_mode) {
                     deviceState.dataset.state = 'ready';
+                    const joinFailure = status.last_disconnect ?
+                        ` · last join failure: ${status.last_disconnect}` : '';
                     deviceStateText.textContent = status.setup_ssid ?
-                        `Setup mode · ${status.setup_ssid}` : 'Setup mode · ready';
+                        `Setup mode · ${status.setup_ssid}${joinFailure}` : `Setup mode · ready${joinFailure}`;
                     setFormEnabled(true);
                     updateOpenNetwork();
                 } else {
